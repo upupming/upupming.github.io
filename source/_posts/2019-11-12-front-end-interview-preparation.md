@@ -7,9 +7,9 @@ categories:
 date: 2019-11-12 11:03:57
 ---
 
-04.08 更新，已经离职，有需要内推的同学仍然可以联系我：
+04.08 更新，已经离职，有需要内推的同学可以联系我的mentor，mentor人超级好，v2ex上有她发的[帖子](https://www.v2ex.com/t/623091)和联系方式，直接邮件联系她即可。
 
-- upupming@gmail.com
+友情插入一则今日头条我所在部门的招聘广告：
 
 <details>
 <summary>招聘 Job Description（仅供参考）</summary>
@@ -91,7 +91,7 @@ Promise.all = function (promises) {
 }
 ```
 
-相应的，还有 `async`、`await`。
+> 注：在 ES2017 中，还引入了 Promise 的语法糖 `async`、`await`，这些历史均可在[维基百科](https://en.wikipedia.org/wiki/ECMAScript#8th_Edition_%E2%80%93_ECMAScript_2017)查到。
 
 异步编程四种方法：
 
