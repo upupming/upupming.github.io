@@ -6,7 +6,8 @@
     "version": "3.8.0"
   },
   "scripts": {
-    "start": "hexo s"
+    "start": "hexo s",
+    "new:post": "hexo new post"
   },
   "dependencies": {
     "@upupming/hexo-renderer-markdown-it-plus": "^2.0.2",
