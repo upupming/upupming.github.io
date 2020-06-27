@@ -43,9 +43,54 @@ date: 2019-11-12 11:03:57
 
 ## JS
 
+### 数据类型
+
+参考：https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Data_structures
+
+7 种原始类型：Boolean、Null、Undefined、Number、BigInt、String、Symbol；和 Object，总共 8 种数据类型。
+
+JS 除了 Object，其他数据类型都是 immutable 的，包括字符串（这与 C/C++ 不同）。
+
+判断数据类型使用 `typeof` 即可：
+
+```js
+const arr = [
+    true,
+    null,
+    undefined,
+    1,
+    2n,
+    '1',
+    Symbol('sym'),
+    {},
+    function () {},
+    [],
+];
+
+for (const data of arr) {
+    console.log(typeof data);
+}
+
+// boolean
+// object -> typeof null == 'object' 是比较特殊的，算是「历史错误」
+// undefined
+// number
+// bigint
+// string
+// symbol
+// object
+// function -> Function 单独列出来了，也算比较特殊
+// object -> Array 也是 Object
+```
+
+对于函数、自定义类，则需要用 `instanceof` 判断。
+
 ### ES6 (ES 2015) 新特性
 
-参考：https://github.com/lukehoban/es6features
+参考：
+
+- https://github.com/lukehoban/es6features
+- https://github.com/gautemo/ES-Intro
 
 #### Promise
 
@@ -135,8 +180,8 @@ print('Hello') // Hello
 
 - 模块，`import`、`export`
 - 模块加载器
-- Map + Set + WeakMap（只接受对象键名，且是弱引用） + WeakSet
-- 箭头函数，箭头函数没有 `arguments` 实参集合,取而代之用 `...` 运算符
+- Map + Set + WeakMap（只接受对象键名，且是弱引用，在不改变对象本身的情况下扩展对象） + WeakSet
+- 箭头函数，箭头函数没有 `arguments` 实参集合，取而代之用 `...` 运算符
 
 ### 变量提升
 
@@ -284,6 +329,27 @@ console.log(add(5)) // 11
 - 优点：避免全局变量的污染，设置私有变量，回调函数（定时器、DOM 事件监听器、Ajax 请求等等）。
 - 缺点：闭包常驻内存，容易造成内存泄漏。
 
+### 内存回收
+
+参考资料：
+
+- https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Memory_Management
+- http://www.ruanyifeng.com/blog/2017/04/memory-leak.html
+- https://juejin.im/post/5d5664ebf265da03f3334f13
+
+- 引用计数（reference-counting）的内存回收方法，把“对象是否不再需要”简化定义为“对象有没有其他对象引用到它”。如果没有引用指向该对象（零引用），对象将被垃圾回收机制回收。这种内存回收无法处理循环引用。
+- 标记-清除（mask-sweep）算法把“对象是否不再需要”简化定义为“对象是否可以获得”，从根开始，找所有从根开始引用的对象，然后找这些对象引用的对象……最终无法找到的对象就可以被清除。
+
+IE 6, 7 使用引用计数方式对 DOM 对象进行垃圾回收，从2012年起，所有现代浏览器都使用了标记-清除垃圾回收算法。
+
+不可获得的对象 = 有零引用的对象（1） + 循环引用的无用对象（2） + 无法从根对象查询到的对象（3）
+
+很显然，标记-清除算法可以对（2）进行很好地清理，但是会误清理掉（3），但是实践中我们很少会碰到类似的情况，所以开发者不太会去关心垃圾回收机制。
+
+WeakMap 里面对键值的引用就是弱引用，不会被计入垃圾回收机制，如果键值对象被回收，那么 WeakMap 对应的键值对会自动消失。
+
+常见的四种内存泄漏：全局变量、被遗忘的定时器和回调函数、DOM 引用、闭包。
+
 ### 同源策略和跨域方法
 
 同源策略指的是**协议**、**域名**、**端口**相同，一段脚本只能读取来自同源的信息。注意子域名也不同源。
@@ -297,6 +363,27 @@ console.log(add(5)) // 11
 - 服务器代理。内部服务器代理请求跨域 url，然后返回数据。
 - CORS 跨源资源分享（Cross-Origin Resource Sharing）。跨域请求数据，现代浏览器可使用 HTML5 规范的 CORS 功能，只要目标服务器返回的 HTTP 头部有 `Access-Control-Allow-Origin: *` 即可像普通 ajax 一样访问跨域资源。注意如请求方法是PUT或DELETE，或者Content-Type字段的类型是application/json，称为非简单请求，在正式通信之前，还需要增加一次预检请求（preflight）。用到的头部有 `Access-Control-Request-Method`、`Access-Control-Request-Headers`、`Access-Control-Allow-Methods`、`Access-Control-Allow-Headers`、`Access-Control-Allow-Credentials`（发送Cookie和HTTP认证信息）。
 - `window.postMessage()`。现代浏览器中多窗口通信使用 HTML5 规范的 targetWindow.postMessage(data, origin);其中 data 是需要发送的对象，origin 是目标窗口的 origin。window.addEventListener('message', handler, false);handler 的 event.data 是 postMessage 发送来的数据，event.origin 是发送窗口的 origin，event.source 是发送消息的窗口引用。
+
+### XSS (Cross-Site Scripting)
+
+参考：
+
+- https://tech.meituan.com/2018/09/27/fe-security.html#:~:text=%E4%BB%80%E4%B9%88%E6%98%AFXSS,%E7%AD%89%EF%BC%8C%E8%BF%9B%E8%80%8C%E5%8D%B1%E5%AE%B3%E6%95%B0%E6%8D%AE%E5%AE%89%E5%85%A8%E3%80%82
+- https://segmentfault.com/a/1190000013315450
+
+跨站脚本攻击，恶意攻击者往Web页面里插入恶意javaScript代码，当用户浏览该页之时，嵌入其中Web里面的javaScript代码会被执行，从而达到恶意攻击用户的目的。
+
+注入点：HTML 节点内容、HTML 属性和 JS 代码，解决办法是对允许嵌入的自定义内容进行转义。
+
+### CSRF (Cross-Site Request Forgery)
+
+参考：
+
+- https://www.jianshu.com/p/fb0be9876371
+
+跨站请求伪造，指通过伪装来自受信任用户的请求来进行对受信任的网站一些操作。
+
+攻击者一般通过XSS使用户在已经授权的网站中不知不觉发起某些请求，从而实现自己的目的。XSS是实现CSRF的有效方法，但不是唯一方法。我们可以通过提高CSRF的攻击门槛进行适当的防范，做法有：重要的请求应该通过post方式进行（杜绝通过点击链接进行攻击）、服务端生成随机token，保存在页面隐藏域中，在发出请求的时候一并发出，服务端在验证其在session中的token，两者一致后才处理请求，处理请求后必须马上销毁token。
 
 ### localStorage vs. Cookie vs. sessionStorage
 
@@ -339,7 +426,7 @@ Function.prototype.newCall = function (context, ...args){
 
 事件流描述的是从页面中接收事件的顺序,也可理解为事件在页面中传播的顺序。
 
-**事件冒泡**和**事件捕获**分别由微软和网景公司提出，在事件捕获的概念下在p元素上发生click事件的顺序应该是document -> html -> body -> div -> p，在事件冒泡的概念下在p元素上发生click事件的顺序应该是p -> div -> body -> html -> document。
+**事件冒泡**和**事件捕获**分别由微软和网景公司提出，在事件捕获的概念下在p元素上发生click事件的顺序应该是document -> html -> body -> div -> p，在事件冒泡的概念下在p元素上发生click事件的顺序应该是p -> div -> body -> html -> document。后来 w3c 采用折中的方式，平息了战火，制定了统一的标准——**先捕获再冒泡**。
 
 addEventListener有三个参数：
 
@@ -356,7 +443,7 @@ element.addEventListener(event, function, useCapture)
 </p>
 <script async src="https://static.codepen.io/assets/embed/ei.js"></script>
 
-注意：对于target节点上（这里的 s2），是先捕获还是先冒泡则捕获事件和冒泡事件的注册顺序，先注册先执行）。
+注意：对于target节点上（这里的 s2），是先捕获还是先冒泡取决于捕获事件和冒泡事件的注册顺序，先注册先执行）。
 
 阻止冒泡：
 
@@ -537,37 +624,6 @@ function throttle(func, limit) {
 }
 ```
 
-### 清除浮动
-
-> 在非IE浏览器（如Firefox）下，当容器的高度为auto，且容器的内容中有浮动（float为left或right）的元素，在这种情况下，容器的高度不能自动伸长以适应内容的高度，使得内容溢出到容器外面而影响（甚至破坏）布局的现象。这个现象叫浮动溢出，为了防止这个现象的出现而进行的CSS处理，就叫CSS清除浮动。
-
-- clear 清除浮动，添加空div法，在浮动元素下方添加空div,并给该元素写css样式 {clear:both;height:0;overflow:hidden;}
-- 给浮动元素父级设置高度
-- 父级同时浮动（需要给父级同级元素添加浮动）
-- 父级设置成 `inline-block`，其 `margin: 0 auto` 居中方式失效
-- 给父级添加 `overflow:hidden`
-- 万能清除法 after 伪类清浮动（现在主流方法，推荐使用）
-
-### 圣杯布局和双飞翼布局
-
-#### 圣杯布局
-
-<p class="codepen" data-height="265" data-theme-id="light" data-default-tab="css,result" data-user="upupming" data-slug-hash="qBBQemg" style="height: 265px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; border: 2px solid; margin: 1em 0; padding: 1em;" data-pen-title="圣杯布局">
-  <span>See the Pen <a href="https://codepen.io/upupming/pen/qBBQemg">
-  圣杯布局</a> by Li Yiming (<a href="https://codepen.io/upupming">@upupming</a>)
-  on <a href="https://codepen.io">CodePen</a>.</span>
-</p>
-<script async src="https://static.codepen.io/assets/embed/ei.js"></script>
-
-#### 双飞翼布局
-
-<p class="codepen" data-height="265" data-theme-id="light" data-default-tab="css,result" data-user="upupming" data-slug-hash="pooQMad" style="height: 265px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; border: 2px solid; margin: 1em 0; padding: 1em;" data-pen-title="双飞翼布局">
-  <span>See the Pen <a href="https://codepen.io/upupming/pen/pooQMad">
-  双飞翼布局</a> by Li Yiming (<a href="https://codepen.io/upupming">@upupming</a>)
-  on <a href="https://codepen.io">CodePen</a>.</span>
-</p>
-<script async src="https://static.codepen.io/assets/embed/ei.js"></script>
-
 ### Ajax
 
 ajax的原理：相当于在用户和服务器之间加一个中间层（ajax引擎),使用户操作与服务器响应异步化。
@@ -682,6 +738,38 @@ attribute 是 DOM 元素在文档中作为 HTML 标签拥有的属性；property
 - 对于 `disabled` 而言，property上的disabled设置为false时，会移除attribute上的 `disabled`，反之亦然，此时数据绑定可以认为是双向的；
 
 ## CSS
+
+### 清除浮动
+
+> 在非IE浏览器（如Firefox）下，当容器的高度为auto，且容器的内容中有浮动（float为left或right）的元素，在这种情况下，容器的高度不能自动伸长以适应内容的高度，使得内容溢出到容器外面而影响（甚至破坏）布局的现象。这个现象叫浮动溢出，为了防止这个现象的出现而进行的CSS处理，就叫CSS清除浮动。
+
+- clear 清除浮动，添加空div法，在浮动元素下方添加空div,并给该元素写css样式 {clear:both;height:0;overflow:hidden;}
+- 给浮动元素父级设置高度
+- 父级同时浮动（需要给父级同级元素添加浮动）
+- 父级设置成 `inline-block`，其 `margin: 0 auto` 居中方式失效
+- 给父级添加 `overflow:hidden`
+- 万能清除法 after 伪类清浮动（现在主流方法，推荐使用）
+
+### 圣杯布局和双飞翼布局
+
+#### 圣杯布局
+
+<p class="codepen" data-height="265" data-theme-id="light" data-default-tab="css,result" data-user="upupming" data-slug-hash="qBBQemg" style="height: 265px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; border: 2px solid; margin: 1em 0; padding: 1em;" data-pen-title="圣杯布局">
+  <span>See the Pen <a href="https://codepen.io/upupming/pen/qBBQemg">
+  圣杯布局</a> by Li Yiming (<a href="https://codepen.io/upupming">@upupming</a>)
+  on <a href="https://codepen.io">CodePen</a>.</span>
+</p>
+<script async src="https://static.codepen.io/assets/embed/ei.js"></script>
+
+#### 双飞翼布局
+
+<p class="codepen" data-height="265" data-theme-id="light" data-default-tab="css,result" data-user="upupming" data-slug-hash="pooQMad" style="height: 265px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; border: 2px solid; margin: 1em 0; padding: 1em;" data-pen-title="双飞翼布局">
+  <span>See the Pen <a href="https://codepen.io/upupming/pen/pooQMad">
+  双飞翼布局</a> by Li Yiming (<a href="https://codepen.io/upupming">@upupming</a>)
+  on <a href="https://codepen.io">CodePen</a>.</span>
+</p>
+<script async src="https://static.codepen.io/assets/embed/ei.js"></script>
+
 
 ### 置换元素
 
@@ -962,7 +1050,67 @@ article[data-columns='4'] {
 }
 ```
 
+### CSS Variable
+
+大小写敏感，具有作用域，放在 `:root` 选择器上表示全局变量。
+
+```css
+:root {
+  --main-bg-color: brown;
+}
+
+.one {
+  color: white;
+  background-color: var(--main-bg-color);
+  margin: 10px;
+  width: 50px;
+  height: 50px;
+  display: inline-block;
+}
+
+.five {
+  background-color: var(--main-bg-color);
+}
+```
+
 ## Vue
+
+### 双向绑定实现原理
+
+参考：
+
+- https://juejin.im/entry/583bd53ca22b9d006dce11d7
+
+访问器属性是对象中的一种特殊属性，它不能直接在对象中设置，而必须通过 `defineProperty()` 方法单独定义。
+
+```js
+var obj = {};
+
+// 为obj定义一个名为hello的访问器属性
+
+Object.defineProperty(obj, 'hello', {
+    get: function () {
+        return sth;
+    },
+
+    set: function (val) {
+        /* do sth */
+    },
+});
+
+obj.hello; // 读取属性，就是调用get函数并返回get函数的返回值
+obj.hello = 'abc'; // 为属性赋值，就是调用set函数，赋值其实是传参
+```
+
+get和set方法内部的this都指向obj，这意味着get和set函数可以操作对象内部的值。另外，访问器属性的会"覆盖"同名的普通属性，因为访问器属性会被优先访问，与其同名的普通属性则会被忽略（也就是所谓的被"劫持"了）。
+
+将该任务分成几个子任务：
+
+1. 输入框以及文本节点与data中的数据绑定
+2. 输入框内容变化时，data中的数据同步变化。即view => model的变化。
+3. data中的数据变化时，文本节点的内容同步变化。即model => view的变化。
+
+具体实现参考：https://github.com/bison1994/two-way-data-binding
 
 ### 生命周期
 
@@ -974,6 +1122,65 @@ article[data-columns='4'] {
 - `updated`：虚拟DOM重新渲染和打补丁之后调用，组成新的DOM已经更新，避免在这个钩子函数中操作数据，防止死循环。【【`data` & `el` & 新 DOM】】
 - `beforeDestroy`：实例销毁前调用，实例还可以用，this能获取到实例，常用于销毁定时器，解绑事件。
 - `destroyed`：实例销毁后调用，调用后所有事件监听器会被移除，所有的子实例都会被销毁。
+
+## React
+
+### React 生命周期
+
+- `componentWillMount` 在渲染前调用,在客户端也在服务端。【legacy】
+- `componentDidMount` 在第一次渲染后调用，只在客户端。之后组件已经生成了对应的DOM结构，可以通过this.getDOMNode()来进行访问。 如果你想和其他JavaScript框架一起使用，可以在这个方法中调用setTimeout, setInterval或者发送AJAX请求等操作(防止异步操作阻塞UI)。
+- `componentWillReceiveProps` 在组件接收到一个新的 prop (更新后)时被调用。这个方法在初始化render时不会被调用。【legacy】
+- `shouldComponentUpdate` 返回一个布尔值。在组件接收到新的props或者state时被调用。在初始化时或者使用forceUpdate时不被调用。
+可以在你确认不需要更新组件时使用。
+- `componentWillUpdate` 在组件接收到新的props或者state但还没有render时被调用。在初始化时不会被调用。【legacy】
+- `componentDidUpdate` 在组件完成更新后立即调用。在初始化时不会被调用。
+- `componentWillUnmount` 在组件从 DOM 中移除之前立刻被调用。
+
+### React 和 Vue 的区别
+
+参考：
+
+- https://juejin.im/post/5b8b56e3f265da434c1f5f76
+
+1. 监听数据变化的实现原理不同。Vue 通过 getter/setter 以及函数的劫持，精准高效；React 默认通过比较引用监听变化，这里还可以引出 PureComponent 和 Component 的不同，PureComponent 自己实现了 `shouldComponentUpdate` 方法（默认返回 `true`），是 shallow 比较（check that primitives have the same value (eg, 1 equals 1 or that true equals true) and that the references are the same between more complex javascript values like objects and arrays），而 Component 是否需要重新渲染完全由 `shouldComponentUpdate` 决定。
+2. Vue 支持双向绑定，React 提倡单向数据流的思想。
+
+    ```jsx
+    class NameForm extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = {value: ''}; //
+
+        this.handleChange = this.handleChange.bind(this);
+        this.handleSubmit = this.handleSubmit.bind(this);
+      }
+
+      handleChange(event) {
+        this.setState({value: event.target.value}); //
+      }
+
+      handleSubmit(event) {
+        alert('A name was submitted: ' + this.state.value);
+        event.preventDefault();
+      }
+
+      render() {
+        return (
+          <form onSubmit={this.handleSubmit}>
+            <label>
+              Name:
+              <input type="text" value={this.state.value} onChange={this.handleChange} /> //
+            </label>
+            <input type="submit" value="Submit" />
+          </form>
+        );
+      }
+    }
+    ```
+
+- 在 Vue 中我们组合不同功能的方式是通过 mixin，而在React中我们通过 HoC (高阶组件）。
+- Vue 通信方式有 props、event、provide/inject；React 通信方式有 props/callback、context
+- Vue 是通过一种拓展的HTML语法进行渲染，React 是通过JSX渲染模板
 
 ## 杂项
 
