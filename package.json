@@ -7,7 +7,7 @@
   },
   "scripts": {
     "start": "hexo s",
-    "new:post": "hexo new post"
+    "new": "hexo new post"
   },
   "dependencies": {
     "@upupming/hexo-renderer-markdown-it-plus": "^2.0.2",
