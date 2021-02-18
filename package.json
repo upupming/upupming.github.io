@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "hexo": {
-    "version": "3.8.0"
+    "version": "3.9.0"
   },
   "scripts": {
     "start": "hexo s",
@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@upupming/hexo-renderer-markdown-it-plus": "^2.0.2",
-    "hexo": "^3.8.0",
+    "hexo": "^3.9.0",
     "hexo-algoliasearch": "^0.3.0",
     "hexo-browsersync": "^0.3.0",
     "hexo-deployer-git": "^1.0.0",

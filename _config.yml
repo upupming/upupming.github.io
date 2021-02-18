@@ -80,10 +80,13 @@ theme: hexo-theme-melody
 ## Docs: https://hexo.io/docs/deployment.html
 deploy:
   - type: git
-    repo: repo-url # git@github.com:upupming/upupming.github.io.git
-    branch: master
+    repo: git@github.com:upupming/upupming.github.io.git
+    branch: gh-pages
 
 algolia:
+  applicationID: '5WEDOKLFCL'
+  apiKey: '26a57bfa5275b7c98a3b3ab7dae61915'
+  indexName: 'upupming-blog'
   chunkSize: 5000
   fields:
     - content:strip:truncate,0,500
@@ -102,6 +105,7 @@ feed:
 # Sitemap
 sitemap:
   path: sitemap.xml
+
 # Long post fix
 server:
   compress: true

@@ -5,15 +5,15 @@ language: zh-Hans
 # Main menu navigation
 # ---------------
 menu:
-    主页: /
-    归档: /archives
-    标签: /tags
-    分类: /categories
-    Mirror: https://mirror.upupming.site
-    音乐: https://music.wxhbts.com
-    Writing: https://writing.upupming.site
-    关于: /about
-    RSS: /rss
+  主页: /
+  归档: /archives
+  标签: /tags
+  分类: /categories
+  Mirror: https://mirror.upupming.site
+  音乐: https://music.wxhbts.com
+  Writing: https://writing.upupming.site
+  关于: /about
+  RSS: /rss
 
 # Favicon
 # ---------------
@@ -25,7 +25,7 @@ favicon: /my-favicon.ico
 pwa:
   enable: true
   manifest: /manifest.json
-  theme_color: "#1B9EF3"
+  theme_color: '#1B9EF3'
   apple_touch_icon: /apple-touch-icon.png
   favicon_32_32: /favicon-32x32.png
   favicon_16_16: /favicon-16x16.png
@@ -38,10 +38,10 @@ highlight_theme: default
 # Nav settings
 # ---------------
 social:
-    #icon_name: url
-    github fab: https://github.com/upupming
-    envelope-square fas: mailto:yimingli.cs@gmail.com
-    rss fas: /rss/
+  #icon_name: url
+  github fab: https://github.com/upupming
+  envelope-square fas: mailto:yimingli.cs@gmail.com
+  rss fas: /rss/
 
 # Algolia search
 # ---------------
@@ -68,7 +68,6 @@ katex:
   cdn:
     css: https://cdn.jsdelivr.net/npm/katex@latest/dist/katex.min.css
 
-
 # Toggle fireworks (IE >= 10)
 # ---------------
 fireworks: false
@@ -82,19 +81,19 @@ google_analytics: UA-114899088-1
 # stylesheets loaded in the <head>
 # ---------------
 stylesheets:
-- /css/index.css
+  - /css/index.css
 
 # scripts loaded in the end of the body
 # ---------------
 scripts:
-- /js/utils.js
-- /js/fancybox.js
-- /js/sidebar.js
-- /js/copy.js
-- /js/fireworks.js
-- /js/transition.js
-- /js/scroll.js
-- /js/head.js
+  - /js/utils.js
+  - /js/fancybox.js
+  - /js/sidebar.js
+  - /js/copy.js
+  - /js/fireworks.js
+  - /js/transition.js
+  - /js/scroll.js
+  - /js/head.js
 
 # cdn for third-party library
 # ---------------
@@ -153,13 +152,13 @@ slide:
   parallaxBackgroundVertical: null
 
 # QR_code:
-  # - itemlist:
-  #     img:
-  #     text:
+# - itemlist:
+#     img:
+#     text:
 
 # adv:
-  # enable: false
-  # info:
+# enable: false
+# info:
 
 # Share System
 # ---------------
@@ -168,8 +167,8 @@ addThis:
   #pubid:
 
 # sharejs:
-  # enable: false
-  # disabled_sites:
+# enable: false
+# disabled_sites:
 
 # Comments System
 # ---------------
@@ -179,38 +178,38 @@ disqus:
   #count:
 
 # laibili:
-  # enable: false
-  # uid:
+# enable: false
+# uid:
 
 # gitment
-  # enable: false
-  # owner:
-  # repo:
-  # client_id:
-  # client_secret:
+# enable: false
+# owner:
+# repo:
+# client_id:
+# client_secret:
 
 gitalk:
-    enable: true
-    client_id: 77bd7cc3fdbcd3e5945a
-    client_secret: 883971da140a8232d72918030f8c1a211a5befc1
-    repo: upupming.github.io
-    owner: upupming
-    admin: upupming
-    language: zh-CN
-    js: https://cdn.jsdelivr.net/npm/gitalk@latest/dist/gitalk.min.js
+  enable: false
+  client_id: 77bd7cc3fdbcd3e5945a
+  client_secret: 883971da140a8232d72918030f8c1a211a5befc1
+  repo: upupming.github.io
+  owner: upupming
+  admin: upupming
+  language: zh-CN
+  js: https://cdn.jsdelivr.net/npm/gitalk@latest/dist/gitalk.min.js
 
 # valine comment system. https://valine.js.org
-# valine:
-#   enable: false # if you want use valine,please set this value is ture
-#   appId:  # leancloud application app id
-#   appKey:  # leancloud application app key
-#   notify: false # valine mail notify (true/false) https://github.com/xCss/Valine/wiki
-#   verify: false # valine verify code (true/false)
-#   pageSize: 10 # comment list page size
-#   avatar: mm # gravatar style https://valine.js.org/#/avatar
-#   lang: zh-cn # i18n: zh-cn/en
-#   placeholder: Just go go # valine comment input placeholder(like: Please leave your footprints )
-#   guest_info: nick,mail,link #valine comment header inf
+valine:
+  enable: true # if you want use valine,please set this value is true
+  appId: 'wiHsGgANF4mLmK2Hiubzew03-gzGzoHsz'
+  appKey: 'Tk0WjoOhLD8ppTfyhdCbyeDT'
+  notify: true
+  verify: false # valine verify code (true/false)
+  pageSize: 10 # comment list page size
+  avatar: mm # gravatar style https://valine.js.org/#/avatar
+  lang: zh-cn # i18n: zh-cn/en
+  placeholder: Just go go # valine comment input placeholder(like: Please leave your footprints )
+  guest_info: nick,mail,link #valine comment header inf
 
 # Footer Settings
 # ---------------
@@ -237,16 +236,15 @@ busuanzi:
   page_pv_header: <i class="fa fa-file"></i>
   page_pv_footer:
 
-
 # Sidebar Settings
 # ---------------
 links_title: 友情链接
 links:
-    #Name: url
-    MARKSZのBlog: https://molunerfinn.com/
-    提问的智慧: https://github.com/ryanhanwu/How-To-Ask-Questions-The-Smart-Way/blob/master/README-zh_CN.md
-    中文维基百科: https://zh.wikipedia.org/
-    ZBQTesla的博客: https://zbqtesla.github.io
+  #Name: url
+  MARKSZのBlog: https://molunerfinn.com/
+  提问的智慧: https://github.com/ryanhanwu/How-To-Ask-Questions-The-Smart-Way/blob/master/README-zh_CN.md
+  中文维基百科: https://zh.wikipedia.org/
+  ZBQTesla的博客: https://zbqtesla.github.io
 
 # Code Wrap
 

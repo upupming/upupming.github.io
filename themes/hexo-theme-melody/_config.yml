@@ -58,9 +58,13 @@ highlight_theme: default
 # Algolia search
 # ---------------
 algolia_search:
-  enable: false
+  enable: true # or false
   hits:
-    per_page: 10
+    per_page: 10 # the number of search results per page
+  labels:
+    input_placeholder: Search for Posts
+    hits_empty: "We didn't find any results for the search: ${query}" # if there are no result
+    hits_stats: '${hits} results found in ${time} ms'
 
 # Local search
 # Please see doc for more details: https://molunerfinn.com/hexo-theme-melody-doc/third-party-support.html#local-search
@@ -168,8 +172,8 @@ slide:
   mouseWheel: false
   transition: slide
   transitionSpeed: default
-  parallaxBackgroundImage: ""
-  parallaxBackgroundSize: ""
+  parallaxBackgroundImage: ''
+  parallaxBackgroundSize: ''
   parallaxBackgroundHorizontal: null
   parallaxBackgroundVertical: null
 
@@ -220,10 +224,10 @@ disqus:
 
 # valine comment system. https://valine.js.org
 # valine:
-#   enable: false # if you want use valine,please set this value is true
-#   appId:  # leancloud application app id
-#   appKey:  # leancloud application app key
-#   notify: false # valine mail notify (true/false) https://github.com/xCss/Valine/wiki
+#   enable: true # if you want use valine,please set this value is true
+#   appId: 'wiHsGgANF4mLmK2Hiubzew03-gzGzoHsz'
+#   appKey: 'Tk0WjoOhLD8ppTfyhdCbyeDT'
+#   notify: true
 #   verify: false # valine verify code (true/false)
 #   pageSize: 10 # comment list page size
 #   avatar: mm # gravatar style https://valine.js.org/#/avatar

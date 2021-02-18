@@ -7,6 +7,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v1
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '12'
       - name: Cache node modules
         uses: actions/cache@v1
         with:
@@ -15,5 +18,5 @@ jobs:
       - uses: yrpang/github-actions-hexo@v1.3
         with:
           deploykey: ${{secrets.DEPLOY_KEY}}
-          if_update_cloudflare: true
-          cloudflare_token: fda76f4cc260e2189e31b10ca24625c3076f8
+          username: 'github-actions[bot]'
+          email: '41898282+github-actions[bot]@users.noreply.github.com'
