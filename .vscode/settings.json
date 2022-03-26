@@ -1,6 +1,3 @@
 {
-    "cSpell.words": [
-        "Flexbox",
-        "vcpkg"
-    ]
+  "cSpell.words": ["esbuild", "Flexbox", "vcpkg", "Vite"]
 }
