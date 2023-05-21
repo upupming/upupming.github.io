@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>&#x4ec0;&#x4e48;&#x662f;&#x670d;&#x52a1;&#x7aef;&#x6e32;&#x67d3;</title>
+        <style>
+/* From extension vscode.github */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+.vscode-dark img[src$=\#gh-light-mode-only],
+.vscode-light img[src$=\#gh-dark-mode-only] {
+	display: none;
+}
+
+</style>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css">
+<link href="https://cdn.jsdelivr.net/npm/katex-copytex@latest/dist/katex-copytex.min.css" rel="stylesheet" type="text/css">
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/markdown.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/highlight.css">
+<style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif;
+                font-size: 14px;
+                line-height: 1.6;
+            }
+        </style>
+        <style>
+.task-list-item {
+    list-style-type: none;
+}
+
+.task-list-item-checkbox {
+    margin-left: -20px;
+    vertical-align: middle;
+    pointer-events: none;
+}
+</style>
+        
+    </head>
+    <body class="vscode-body vscode-light">
+        <hr>
+<p>title: Speedy SSR 功能的实现原理和经验总结
+date: 2023-05-21 17:21:17
+tags:</p>
+<ul>
+<li>frontend
+categories:</li>
+<li>前端</li>
+<li>基础知识</li>
+</ul>
+<hr>
+<!--
+是个啥
+有啥用
+技术难点
+趋势
+ -->
+<p>在 2022 年，字节实习的那段时间里，我参与了 Speedy 的开发，主要的任务是为 Speedy 实现服务端渲染的能力，本文介绍一下实现原理。</p>
+<p><img src="https://s2.loli.net/2023/05/21/h6rf7PRjOlKEZHA.png" alt="20230521221623"></p>
+<!-- more -->
+<h2 id="什么是服务端渲染">什么是服务端渲染</h2>
+<p>服务端渲染（Server Side Rendering, SSR），就是指从服务端渲染出前端页面的内容。在以往早期的时候，前后端还没有分离，网页内容完全是由服务端渲染的，例如用 PHP 做后端生成好网页内容之后返回给前端负责显示，我了解到还有 JSP (Java Server Pages), <a href="http://ASP.NET">ASP.NET</a> (Active Server Pages Network Enabled Technologies) 等。但是随着前端越来越复杂，前后端开始分离，逐渐出现了各种前端框架，如 React (2013), Vue (2014), Angular (2016), Svelte (2016) 等等。前后端开始分工明确，客户端渲染（Client Side Rendering, CSR）大行其道，这种模式下面所有页面内容都由客户端动态渲染而来。</p>
+<p>纯的客户端渲染主要有两个问题:</p>
+<ol>
+<li>拿到前端页面代码之后，一般页面往往需要从后端获取数据才能展示页面，导致白屏时间长。</li>
+<li>SSO 不友好，搜索引擎拿到页面之后往往不会继续请求数据，这样抓取到的页面可能会是只带 JS 文件的空白 HTML。</li>
+</ol>
+<p>这样 SSR 又逐渐流行起来，以弥补 CSR 的缺点。SSR 主要的方法是前端框架实现一套服务端渲染的 API，支持对组件进行脱水（hydrate）和水合（de-hydrate）。服务端（Node.js）负责将前端组件进行脱水得到 HTML 内容，这样浏览器请求之后的页面是有内容的，不用再重复请求数据；浏览器拿到数据和 HTML 之后进行水合，继续以前端组件的形式完成渲染，支持前端组件的生命周期和对应的 API。这样 CSR 和 SSR 的优点就结合了起来，使得开发体验更好的同时首屏得以保证，当然需要维护额外的 Node.js 服务器，以及构建工具需要对服务端渲染做一些支持，这是额外的成本投入，这也是我这次要讲的内容~</p>
+<h2 id="speedy-中服务端渲染的实现">Speedy 中服务端渲染的实现</h2>
+<p><a href="https://github.com/upupming/speedy-ssr-examples">https://github.com/upupming/speedy-ssr-examples</a> 给出了 Speedy 的 SSR 的一些 DEMO。以 <a href="https://github.com/upupming/speedy-ssr-examples/tree/main/examples/basic"><code>basic</code></a> 项目为例，在 <code>speedy.config.ts</code> 中定义了四个路由，分别解释如下:</p>
+<pre><code class="language-js">{
+  <span class="hljs-comment">// ...</span>
+  <span class="hljs-attr">ssr</span>: {
+    <span class="hljs-attr">pages</span>: [
+      <span class="hljs-comment">// SSG 路由</span>
+      {
+        <span class="hljs-attr">path</span>: <span class="hljs-string">&#x27;/ssg&#x27;</span>,
+        <span class="hljs-attr">name</span>: <span class="hljs-string">&#x27;ssg&#x27;</span>,
+      },
+      <span class="hljs-comment">// SSR 路由</span>
+      {
+        <span class="hljs-attr">path</span>: <span class="hljs-string">&#x27;/ssr&#x27;</span>,
+        <span class="hljs-attr">name</span>: <span class="hljs-string">&#x27;ssr&#x27;</span>,
+      },
+      <span class="hljs-comment">// 没有服务端渲染的纯静态页面</span>
+      {
+        <span class="hljs-attr">path</span>: <span class="hljs-string">&#x27;/static&#x27;</span>,
+        <span class="hljs-attr">name</span>: <span class="hljs-string">&#x27;static&#x27;</span>,
+      },
+      <span class="hljs-comment">// 支持参数的页面</span>
+      {
+        <span class="hljs-attr">path</span>: <span class="hljs-string">&#x27;/params/:id/:name&#x27;</span>,
+        <span class="hljs-attr">name</span>: <span class="hljs-string">&#x27;params&#x27;</span>,
+      },
+    ],
+  },
+}
+
+</code></pre>
+<p>这里 <code>name</code> 就是代码所处的文件夹，<code>path</code> 是最终产物的 URL 路径。每一个页面的组织形式都是文件夹包含两个文件 <code>index.tsx</code> 和 <code>prefetch.ts</code> 形式，其中 <code>index.tsx</code> 是页面组件，<code>prefetch</code> 是数据预取函数。我们借鉴了 Next.js 的思路，根据 <code>prefetch</code> 中导出的函数名确定当前页面是 SSR 还是 SSG (Server Side Generating, 服务端生成)。与 SSR 不同，SSG 只在构建的时候生成一次数据，然后在前端访问时每次都获取构建时的数据，这种比较适用于构建时内容就确定了的页面，例如个人博客。</p>
+<p><code>prefetch</code> 中的数据会作为 <code>props</code> 喂给 <code>index.tsx</code> 中的组件，然后渲染成当前页面，主要用来解决首屏数据请求耗时造成白屏的问题，要求导出的函数名称必须为 <code>getStaticProps</code> 或者 <code>getServerSideProps</code>，前者是 SSG，后者是 SSR。</p>
+<p>以 <code>/ssr</code> 页面为例，后端会直接返回带内容的 HTML，并且将 <code>prefetch</code> 中预取到的数据挂在全局变量 <code>__CONTEXT__.routeData</code> 之下，以供前端继续水合，将 HTML 变成绑定了事件和生命周期的 React 组件。</p>
+<p><img src="https://s2.loli.net/2023/05/21/a4HzbSqZ1K7VoBx.png" alt="20230521194101">
+<img src="https://s2.loli.net/2023/05/21/7UlhG8MIa9PzZ1T.png" alt="20230521194138"></p>
+<p>我们使用 <code>@speedy-js/universal</code> 包来支持 SSR，其封装了 <code>@speedy-js/core</code>，在其基础上增加了 SSR 和 SSG 的能力。<code>@speedy-js/universal</code> 的主要贡献有:</p>
+<ul>
+<li>实现了一个 <code>BaseBundler</code> 类，包含 <code>serverBundler</code> 和 <code>clientBundler</code>。实现了 <code>ReactBundler</code> 来实现对 React 框架代码的编译，用户可以通过配置 <code>ssr.framework</code> 来配置当前使用的框架。
+<ul>
+<li>在 Speedy 中存在子编译器的概念，也是借鉴于 Webpack，我们通过将 <code>serverBundler</code> 作为 <code>clientBundler</code> 的子编译器，这样在开发模式下只有一个 watcher，代码发生修改时，<code>clientBundler</code> 会通知 <code>serverBundler</code>。</li>
+<li><code>serverBundler</code> 负责编译服务端代码，产物是 CJS 格式。编译产物代码存在两个导出函数，分别是 <code>Component</code> 和 <code>getServerSideProps</code>，其中 <code>Component</code> 是服务端代码的 React 组件，<code>getServerSideProps</code> 是对应的 <code>prefetch.ts</code> 中的数据预取函数。
+<ul>
+<li>脱水逻辑已经封装在 bundler 内部，后面的 Server 会负责将 <code>Component</code> 脱水并处理前端请求。</li>
+</ul>
+</li>
+<li><code>clientBundler</code> 负责编译客户端代码，产物是 SystemJS 格式（利用 SystemJS 支持分包）。同样包含两个导出，分别是 <code>default</code> 和 <code>getServerSideProps</code>。<code>default</code> 是客户端代码的 React 组件，<code>getServerSideProps</code> 是对应的 <code>prefetch.ts</code> 中的数据预取函数。<code>getServerSideProps</code> 在客户端代码中仍然存在是为了进行 CSR 降级，在服务端挂掉时仍然能够进行数据请求。
+<ul>
+<li>只靠这两个导出，无法页面正常运行，因此我们的 Server 还会增加 JS 文件，利用这两个导出，在对应的时机进行水合，使页面正常工作。</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>实现了一个 <code>BaseServer</code> 类，可以通过 <code>createServer</code> 函数来创建其子类 <code>DevServer</code>（功能类似 <code>vite dev</code>） 或者 <code>ProdServer</code>（功能类似 <code>vite preview</code>）,其返回结果类似于 <a href="https://github.com/vercel/next.js/blob/cfa8ab9cbfb8818408654e223aa9253be619879e/packages/next/server/next.ts#L25">NextServer</a>, 使用例子参考 <a href="https://nextjs.org/docs/advanced-features/custom-server">Next.js | Custom Server</a>。并且与之对应有一个 <code>createHttpServer</code> 函数来创建 Server 的同时绑定到端口让前端直接访问。
+<ul>
+<li>采用了 Connect 中间件实现内部的请求处理逻辑，方便拓展和复用。</li>
+</ul>
+</li>
+<li>支持了不同的 Adapter，来实现将产物部署到不同的 Serverless 环境。支持了 Vercel 和 Cloudflare Worker。</li>
+</ul>
+<h3 id="bundler-实现">Bundler 实现</h3>
+<p><code>BaseBundler</code> 包含一些通用逻辑，具体不同框架的实现由对应的子类去实现，我们可以抽象出一些 Bundler 需要做的事情：</p>
+<ul>
+<li>包含 <code>clientBundler</code> 和 <code>serverBundler</code> 分别编译客户端代码和服务端代码。</li>
+<li>在构建时进行 SSG 生成，调用对应语言的 <code>SSGRunner</code> 来生成 JSON 数据到产物中。</li>
+</ul>
+<p><code>ReactBundler</code> 包含具体的实现，下面是初始化 <code>clientBundler</code> 和 <code>serverBundler</code> 的逻辑：</p>
+<pre><code class="language-ts"><span class="hljs-variable language_">this</span>.<span class="hljs-property">clientBundler</span> = <span class="hljs-keyword">await</span> <span class="hljs-title class_">SpeedyBundler</span>.<span class="hljs-title function_">create</span>(
+  {
+    ...config,
+    <span class="hljs-attr">target</span>: <span class="hljs-string">&#x27;es6&#x27;</span>,
+    root,
+    <span class="hljs-attr">mode</span>: dev ? <span class="hljs-string">&#x27;development&#x27;</span> : <span class="hljs-string">&#x27;production&#x27;</span>,
+    <span class="hljs-attr">input</span>: {
+      <span class="hljs-comment">// Client-side-only entries</span>
+      ...config?.<span class="hljs-property">input</span>,
+      <span class="hljs-comment">// SSR client entries，我们对每个页面都生成了一个虚拟入口文件，这样能够对用户编写的文件进行 import，在用户代码的基础上做一些封装；virtual entry 的思路在构建工具中很常见</span>
+      ...<span class="hljs-title class_">Object</span>.<span class="hljs-title function_">fromEntries</span>(appContext.<span class="hljs-property">normalizedPages</span>.<span class="hljs-title function_">map</span>(<span class="hljs-function">(<span class="hljs-params">{ name }</span>) =&gt;</span> [name, <span class="hljs-title function_">getVirtualEntry</span>(name)])),
+      <span class="hljs-comment">// virtual entry，这里的虚拟入口的代码也就是驱动客户端代码进行水合的那部分模板代码</span>
+      <span class="hljs-comment">// VIRTUAL_ROOT_NAME === &#x27;__ROOT__&#x27;</span>
+      [<span class="hljs-variable constant_">VIRTUAL_ROOT_NAME</span>]: <span class="hljs-title function_">getVirtualEntry</span>(<span class="hljs-variable constant_">VIRTUAL_ROOT_NAME</span>),
+    },
+    <span class="hljs-attr">output</span>: {
+      <span class="hljs-attr">format</span>: <span class="hljs-string">&#x27;system&#x27;</span>,
+      <span class="hljs-attr">splitting</span>: <span class="hljs-literal">true</span>,
+      ...config?.<span class="hljs-property">output</span>,
+      <span class="hljs-attr">path</span>: <span class="hljs-variable constant_">OUTPUT_FOLDER</span>,
+      <span class="hljs-attr">entryNames</span>: dev ? <span class="hljs-string">&#x27;client/[name]&#x27;</span> : <span class="hljs-string">&#x27;client/[name]-[hash]&#x27;</span>,
+      <span class="hljs-attr">chunkNames</span>: <span class="hljs-string">&#x27;client/[name].[hash]&#x27;</span>,
+    },
+    <span class="hljs-attr">define</span>: {
+      <span class="hljs-attr">__BROWSER__</span>: <span class="hljs-string">&#x27;true&#x27;</span>,
+      <span class="hljs-attr">global</span>: <span class="hljs-string">&#x27;globalThis&#x27;</span>,
+    },
+    <span class="hljs-attr">command</span>: dev ? <span class="hljs-string">&#x27;serve&#x27;</span> : <span class="hljs-string">&#x27;build&#x27;</span>,
+    <span class="hljs-attr">watch</span>: dev,
+    <span class="hljs-attr">configFile</span>: <span class="hljs-literal">false</span>,
+    <span class="hljs-attr">platform</span>: <span class="hljs-string">&#x27;browser&#x27;</span>,
+    <span class="hljs-attr">plugins</span>: [
+      ...(config?.<span class="hljs-property">plugins</span> ?? []),
+      <span class="hljs-title function_">resolvePlugin</span>({ root }),
+      <span class="hljs-comment">// clientPlugin 里面包含了对 virtual entry 的处理逻辑和对应应该生成的代码。</span>
+      <span class="hljs-title function_">clientPlugin</span>({
+        <span class="hljs-attr">appContext</span>: <span class="hljs-variable language_">this</span>.<span class="hljs-property">appContext</span>,
+      }),
+      <span class="hljs-comment">// 进度条插件，并行展示 Client 代码的进度条</span>
+      <span class="hljs-title function_">progressPlugin</span>({ <span class="hljs-attr">id</span>: <span class="hljs-string">&#x27;Client&#x27;</span>, <span class="hljs-attr">quietOnDev</span>: <span class="hljs-literal">false</span> }),
+    ],
+  },
+  <span class="hljs-string">&#x27;universal.client&#x27;</span>
+);
+
+<span class="hljs-keyword">const</span> serverPlatform = environment === <span class="hljs-string">&#x27;node&#x27;</span> ? <span class="hljs-string">&#x27;node&#x27;</span> : <span class="hljs-string">&#x27;browser&#x27;</span>;
+
+<span class="hljs-variable language_">this</span>.<span class="hljs-property">serverBundler</span> = <span class="hljs-keyword">await</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">clientBundler</span>.<span class="hljs-title function_">createChildCompiler</span>(
+  {
+    ...config,
+    root,
+    <span class="hljs-attr">input</span>: <span class="hljs-title class_">Object</span>.<span class="hljs-title function_">fromEntries</span>(appContext.<span class="hljs-property">normalizedPages</span>.<span class="hljs-title function_">map</span>(<span class="hljs-function">(<span class="hljs-params">{ name }</span>) =&gt;</span> [name, <span class="hljs-title function_">getVirtualEntry</span>(name)])),
+    <span class="hljs-attr">output</span>: {
+      <span class="hljs-attr">splitting</span>: <span class="hljs-literal">true</span>,
+      ...config?.<span class="hljs-property">output</span>,
+      <span class="hljs-attr">format</span>: <span class="hljs-string">&#x27;cjs&#x27;</span>,
+      <span class="hljs-attr">path</span>: <span class="hljs-variable constant_">OUTPUT_FOLDER</span>,
+      <span class="hljs-attr">entryNames</span>: <span class="hljs-string">&#x27;server/[name]&#x27;</span>,
+      <span class="hljs-attr">chunkNames</span>: <span class="hljs-string">&#x27;server/[name].[hash]&#x27;</span>,
+    },
+    <span class="hljs-attr">html</span>: <span class="hljs-literal">false</span>,
+    <span class="hljs-attr">mode</span>: dev ? <span class="hljs-string">&#x27;development&#x27;</span> : <span class="hljs-string">&#x27;production&#x27;</span>,
+    <span class="hljs-attr">minify</span>: <span class="hljs-literal">false</span>,
+    <span class="hljs-attr">command</span>: <span class="hljs-string">&#x27;build&#x27;</span>,
+    <span class="hljs-attr">watch</span>: dev,
+    <span class="hljs-attr">configFile</span>: <span class="hljs-literal">false</span>,
+    <span class="hljs-attr">define</span>: {
+      <span class="hljs-attr">__BROWSER__</span>: <span class="hljs-string">&#x27;false&#x27;</span>,
+    },
+    <span class="hljs-attr">platform</span>: serverPlatform,
+    <span class="hljs-attr">plugins</span>: [
+      ...(config?.<span class="hljs-property">plugins</span> ?? []),
+      <span class="hljs-title function_">resolvePlugin</span>({ root, <span class="hljs-attr">external</span>: <span class="hljs-literal">true</span> }),
+      <span class="hljs-title function_">externalPlugin</span>(externalOptions),
+      <span class="hljs-comment">// serverPlugin 里面包含了对 virtual entry 的处理逻辑和对应应该生成的代码。</span>
+      <span class="hljs-title function_">serverPlugin</span>({ root, appContext }),
+      <span class="hljs-comment">// 进度条插件，并行展示 Server 代码的进度条</span>
+      <span class="hljs-title function_">progressPlugin</span>({ <span class="hljs-attr">id</span>: <span class="hljs-string">&#x27;Server&#x27;</span>, <span class="hljs-attr">quietOnDev</span>: <span class="hljs-literal">false</span> }),
+    ],
+  },
+  <span class="hljs-string">&#x27;universal.server&#x27;</span>
+);
+</code></pre>
+<p>这里最核心的是对生成产物的代码的控制，其实现逻辑在 <code>clientPlugin</code> 中。Speedy 中插件均是通过 Tapable 的 hook 来实现了，也是借鉴了 Webpack 的插件体系。我们来看 <code>clientPlugin</code> 中比较核心的代码生成逻辑：</p>
+<pre><code class="language-tsx"><span class="hljs-comment">// packages/universal/src/bundler/react/plugins/virtual-entry/client.tsx</span>
+<span class="hljs-keyword">import</span> <span class="hljs-title class_">React</span> <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;react&#x27;</span>;
+<span class="hljs-keyword">import</span> <span class="hljs-title class_">ReactDOM</span> <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;react-dom&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Browser</span>, loadRouteModules } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@speedy-js/universal/components&#x27;</span>;
+
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">init</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">const</span> data = <span class="hljs-title class_">JSON</span>.<span class="hljs-title function_">parse</span>(<span class="hljs-variable language_">document</span>.<span class="hljs-title function_">getElementById</span>(<span class="hljs-string">&#x27;__SPEEDY_DATA__&#x27;</span>)?.<span class="hljs-property">textContent</span> ?? <span class="hljs-string">&#x27;{}&#x27;</span>);
+  <span class="hljs-variable language_">window</span>.<span class="hljs-property">__SPEEDY__</span> = data;
+
+  <span class="hljs-keyword">const</span> root = <span class="hljs-variable language_">document</span>.<span class="hljs-title function_">getElementById</span>(<span class="hljs-string">&#x27;root&#x27;</span>);
+  <span class="hljs-keyword">if</span> (!root) {
+    <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">&#x27;🔥 Hmm, cannot find `#root` to mount the component.&#x27;</span>);
+  }
+
+  <span class="hljs-keyword">if</span> (!data.<span class="hljs-property">__SSR__</span>) {
+    <span class="hljs-title class_">ReactDOM</span>.<span class="hljs-title function_">render</span>(<span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">Browser</span> /&gt;</span></span>, root);
+  } <span class="hljs-keyword">else</span> {
+    <span class="hljs-keyword">const</span> { assetsMeta, matchedPage } = data.<span class="hljs-property">__CONTEXT__</span>;
+
+    <span class="hljs-keyword">const</span> { assets, <span class="hljs-variable language_">module</span> } = assetsMeta[matchedPage.<span class="hljs-property">name</span>];
+    <span class="hljs-keyword">const</span> routeModule = <span class="hljs-keyword">await</span> <span class="hljs-title function_">loadRouteModules</span>(assets, <span class="hljs-variable language_">module</span>, matchedPage.<span class="hljs-property">name</span>);
+    data.<span class="hljs-property">__CONTEXT__</span>.<span class="hljs-property">routeModules</span>[matchedPage.<span class="hljs-property">name</span>] = routeModule;
+
+    <span class="hljs-title class_">ReactDOM</span>.<span class="hljs-title function_">hydrate</span>(<span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">Browser</span> /&gt;</span></span>, root);
+  }
+
+  <span class="hljs-variable language_">window</span>.<span class="hljs-property">__SPEEDY_APP_LOADED__</span> = <span class="hljs-literal">true</span>;
+}
+
+<span class="hljs-title function_">init</span>();
+
+</code></pre>
+<pre><code class="language-ts"><span class="hljs-keyword">import</span> clientVirtualEntryCode <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./virtual-entry/client?raw&#x27;</span>;
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">const</span> clientPlugin = ({ appContext }: { <span class="hljs-attr">appContext</span>: <span class="hljs-title class_">AppContext</span> }): <span class="hljs-function"><span class="hljs-params">SpeedyPlugin</span> =&gt;</span> {
+  compiler.<span class="hljs-property">hooks</span>.<span class="hljs-property">load</span>.<span class="hljs-title function_">tapPromise</span>(<span class="hljs-variable constant_">CLIENT_PLUGIN_NAME</span>, <span class="hljs-keyword">async</span> (args) =&gt; {
+    <span class="hljs-keyword">if</span> (!<span class="hljs-keyword">new</span> <span class="hljs-title class_">RegExp</span>(<span class="hljs-variable constant_">VIRTUAL_ENTRY_SUFFIX</span>).<span class="hljs-title function_">test</span>(args.<span class="hljs-property">path</span>)) {
+      <span class="hljs-keyword">return</span>;
+    }
+
+    <span class="hljs-keyword">const</span> { query } = <span class="hljs-title function_">resolvePathAndQuery</span>(args.<span class="hljs-property">path</span>);
+
+    <span class="hljs-keyword">const</span> pageName = query[<span class="hljs-variable constant_">QUERY_PAGE_NAME</span>];
+
+    <span class="hljs-keyword">if</span> (!pageName) {
+      <span class="hljs-keyword">return</span>;
+    }
+
+    <span class="hljs-keyword">if</span> (pageName === <span class="hljs-variable constant_">VIRTUAL_ROOT_NAME</span>) {
+      <span class="hljs-comment">// 把模板代码作为字符串返回给 speedy 进行编译，实现了对用户代码的封装</span>
+      <span class="hljs-keyword">const</span> entryHelper = <span class="hljs-keyword">new</span> <span class="hljs-title class_">EntryHelper</span>(clientVirtualEntryCode);
+
+      <span class="hljs-keyword">return</span> {
+        <span class="hljs-attr">loader</span>: <span class="hljs-string">&#x27;tsx&#x27;</span>,
+        <span class="hljs-attr">resolveDir</span>: root,
+        <span class="hljs-attr">contents</span>: entryHelper.<span class="hljs-title function_">toString</span>(),
+      };
+    }
+
+    <span class="hljs-keyword">const</span> page = appContext.<span class="hljs-title function_">getPageByName</span>(pageName)!;
+
+    <span class="hljs-keyword">const</span> prefetchPath = page.<span class="hljs-property">prefetch</span>;
+    <span class="hljs-keyword">const</span> relativePrefetchPath = prefetchPath &amp;&amp; path.<span class="hljs-title function_">relative</span>(root, prefetchPath);
+
+    <span class="hljs-keyword">const</span> entryPath = page.<span class="hljs-property">entry</span>;
+    <span class="hljs-keyword">const</span> relativeEntryPath = path.<span class="hljs-title function_">relative</span>(root, entryPath);
+    <span class="hljs-keyword">const</span> entryHelper = <span class="hljs-keyword">new</span> <span class="hljs-title class_">EntryHelper</span>(<span class="hljs-string">`export { default } from &#x27;./<span class="hljs-subst">${relativeEntryPath}</span>&#x27;`</span>);
+
+    <span class="hljs-keyword">if</span> (prefetchPath &amp;&amp; fs.<span class="hljs-title function_">existsSync</span>(prefetchPath)) {
+      <span class="hljs-keyword">const</span> <span class="hljs-attr">entryPoints</span>: <span class="hljs-title class_">Record</span>&lt;<span class="hljs-built_in">string</span>, <span class="hljs-built_in">string</span>&gt; = {
+        <span class="hljs-attr">prefetch</span>: prefetchPath,
+      };
+      <span class="hljs-keyword">const</span> buildResult = esbuild.<span class="hljs-title function_">buildSync</span>({
+        <span class="hljs-attr">absWorkingDir</span>: root,
+        entryPoints,
+        <span class="hljs-attr">outdir</span>: root,
+        <span class="hljs-attr">metafile</span>: <span class="hljs-literal">true</span>,
+        <span class="hljs-attr">write</span>: <span class="hljs-literal">false</span>,
+      });
+      <span class="hljs-keyword">const</span> prefetchExportedNames = buildResult.<span class="hljs-property">metafile</span>?.<span class="hljs-property">outputs</span>?.[<span class="hljs-string">&#x27;prefetch.js&#x27;</span>]?.<span class="hljs-property">exports</span>;
+
+      <span class="hljs-keyword">const</span> isSSG = prefetchExportedNames?.<span class="hljs-title function_">includes</span>(<span class="hljs-string">&#x27;getStaticProps&#x27;</span>);
+      <span class="hljs-keyword">const</span> isSSR = prefetchExportedNames?.<span class="hljs-title function_">includes</span>(<span class="hljs-string">&#x27;default&#x27;</span>);
+
+      <span class="hljs-keyword">if</span> (isSSG) {
+        prefetchTypeMap[pageName] = <span class="hljs-variable constant_">PREFETCH_TYPE</span>.<span class="hljs-property">SSG</span>;
+      } <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (isSSR) {
+        prefetchTypeMap[pageName] = <span class="hljs-variable constant_">PREFETCH_TYPE</span>.<span class="hljs-property">SSR</span>;
+
+        entryHelper.<span class="hljs-title function_">addReExport</span>({
+          <span class="hljs-attr">exportName</span>: <span class="hljs-string">&#x27;default as getServerSideProps&#x27;</span>,
+          <span class="hljs-attr">filepath</span>: <span class="hljs-string">`./<span class="hljs-subst">${relativePrefetchPath}</span>`</span>,
+        });
+      }
+    }
+
+    <span class="hljs-keyword">return</span> {
+      <span class="hljs-attr">loader</span>: <span class="hljs-string">&#x27;tsx&#x27;</span>,
+      <span class="hljs-attr">resolveDir</span>: root,
+      <span class="hljs-attr">contents</span>: entryHelper.<span class="hljs-title function_">toString</span>(),
+    };
+  });
+}
+</code></pre>
+<p>下面是 <code>basic</code> 为例子生成的 <code>__ROOT__.js</code> 和 <code>client/ssr.js</code> 的简化版本:</p>
+<pre><code class="language-js"><span class="hljs-comment">// __ROOT__.js</span>
+<span class="hljs-keyword">function</span> <span class="hljs-title function_">init</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-comment">//...</span>
+}
+<span class="hljs-comment">// 水合逻辑</span>
+<span class="hljs-title function_">init</span>()
+</code></pre>
+<pre><code class="language-js"><span class="hljs-comment">// React 组件</span>
+<span class="hljs-keyword">function</span> <span class="hljs-title function_">App</span>(<span class="hljs-params"></span>) {}
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">default</span> <span class="hljs-title class_">App</span>
+<span class="hljs-comment">// 数据预取函数</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">getServerSideProps</span>(<span class="hljs-params"></span>){}
+</code></pre>
+<p>另外 <code>clientPlugin</code> 在后处理 HTML 文件的时候，会加入一些元信息（manifest），后续可供使用：</p>
+<pre><code class="language-ts">compiler.<span class="hljs-property">hooks</span>.<span class="hljs-property">processAssets</span>.<span class="hljs-title function_">tapPromise</span>(
+  {
+    <span class="hljs-attr">name</span>: <span class="hljs-variable constant_">CLIENT_PLUGIN_NAME</span>,
+    <span class="hljs-attr">stage</span>: compiler.<span class="hljs-property">STAGE</span>.<span class="hljs-property">PROCESS_ASSETS_MODIFY_GENERATED_HTML</span>,
+  },
+  <span class="hljs-keyword">async</span> (bundles, manifest) =&gt; {
+    <span class="hljs-comment">// ...</span>
+    <span class="hljs-keyword">for</span> (<span class="hljs-keyword">const</span> [chunkName, chunk] <span class="hljs-keyword">of</span> compiler.<span class="hljs-property">outputChunk</span>.<span class="hljs-title function_">entries</span>()) {
+      <span class="hljs-comment">// ...</span>
+      <span class="hljs-comment">// Append root.js to all html outputs</span>
+      <span class="hljs-keyword">if</span> (chunkName.<span class="hljs-title function_">endsWith</span>(<span class="hljs-string">&#x27;.html&#x27;</span>)) {
+        <span class="hljs-comment">// add manifest to all pages</span>
+        chunk.<span class="hljs-property">contents</span> = chunk.<span class="hljs-property">contents</span>.<span class="hljs-title function_">toString</span>().<span class="hljs-title function_">replace</span>(
+          <span class="hljs-string">&#x27;&lt;/body&gt;&#x27;</span>,
+          <span class="hljs-string">`
+          &lt;script id=&quot;<span class="hljs-subst">${__SPEEDY_DATA_ID__}</span>&quot; type=&quot;application/json&quot;&gt;
+          <span class="hljs-subst">${serializeState&lt;SpeedyData&gt;({
+            __CONTEXT__: {
+              basename: ssrOptions.baseUrl,
+              matchedPage,
+              pages: ssrOptions.pages,
+              isModule,
+              assetsMeta,
+              routeData: {},
+              routeModules: {},
+              getServerDataMeta: {},
+            },
+            __SSR__: <span class="hljs-literal">false</span>,
+          })}</span>
+          &lt;/script&gt;
+          &lt;/body&gt;
+          `</span>.<span class="hljs-title function_">trim</span>()
+      }
+  }
+</code></pre>
+<p>再来看 <code>serverPlugin</code> 的核心代码：</p>
+<pre><code class="language-tsx"><span class="hljs-comment">// packages/universal/src/bundler/react/plugins/virtual-entry/server.tsx</span>
+<span class="hljs-keyword">import</span> <span class="hljs-title class_">React</span> <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;react&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Server</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@speedy-js/universal/components&#x27;</span>;
+<span class="hljs-keyword">import</span> type { <span class="hljs-title class_">ServerSideRenderContext</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@speedy-js/universal/interface&#x27;</span>;
+<span class="hljs-comment">// @ts-ignore, __ENTRY_PATH__ 要被替换为实际的路径才能实现封装</span>
+<span class="hljs-keyword">import</span> <span class="hljs-title class_">Entry</span> <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;__ENTRY_PATH__&#x27;</span>;
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">const</span> <span class="hljs-title class_">Component</span>: <span class="hljs-title class_">React</span>.<span class="hljs-property">FC</span>&lt;<span class="hljs-title class_">ServerSideRenderContext</span>&gt; = <span class="hljs-function">(<span class="hljs-params">props</span>) =&gt;</span> {
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">Server</span> {<span class="hljs-attr">...props</span>}&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">Entry</span> /&gt;</span>
+    <span class="hljs-tag">&lt;/<span class="hljs-name">Server</span>&gt;</span></span>
+  );
+};
+
+</code></pre>
+<pre><code class="language-ts"><span class="hljs-keyword">import</span> serverVirtualEntryCode <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./virtual-entry/server?raw&#x27;</span>;
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">const</span> serverPlugin = ({ appContext, root }: <span class="hljs-title class_">ServerPluginOptions</span>): <span class="hljs-function"><span class="hljs-params">SpeedyPlugin</span> =&gt;</span> {
+  <span class="hljs-keyword">return</span> {
+    <span class="hljs-attr">name</span>: <span class="hljs-variable constant_">SERVER_PLUGIN_NAME</span>,
+    <span class="hljs-title function_">apply</span>(<span class="hljs-params">compiler</span>) {
+      <span class="hljs-comment">// ...</span>
+      compiler.<span class="hljs-property">hooks</span>.<span class="hljs-property">load</span>.<span class="hljs-title function_">tapPromise</span>(<span class="hljs-variable constant_">SERVER_PLUGIN_NAME</span>, <span class="hljs-keyword">async</span> (args) =&gt; {
+        <span class="hljs-comment">// ...</span>
+        <span class="hljs-keyword">if</span> (!<span class="hljs-keyword">new</span> <span class="hljs-title class_">RegExp</span>(<span class="hljs-variable constant_">VIRTUAL_ENTRY_SUFFIX</span>).<span class="hljs-title function_">test</span>(args.<span class="hljs-property">path</span>)) {
+          <span class="hljs-keyword">return</span>;
+        }
+
+        <span class="hljs-keyword">const</span> { query } = <span class="hljs-title function_">resolvePathAndQuery</span>(args.<span class="hljs-property">path</span>);
+
+        <span class="hljs-keyword">const</span> pageName = query[<span class="hljs-variable constant_">QUERY_PAGE_NAME</span>];
+
+        <span class="hljs-keyword">if</span> (!pageName) {
+          <span class="hljs-keyword">return</span>;
+        }
+
+        <span class="hljs-keyword">const</span> page = appContext.<span class="hljs-title function_">getPageByName</span>(pageName)!;
+
+        <span class="hljs-keyword">const</span> entryPath = page.<span class="hljs-property">entry</span>;
+        <span class="hljs-keyword">const</span> prefetchPath = page.<span class="hljs-property">prefetch</span>;
+
+        <span class="hljs-keyword">const</span> <span class="hljs-attr">entryPoints</span>: <span class="hljs-title class_">Record</span>&lt;<span class="hljs-built_in">string</span>, <span class="hljs-built_in">string</span>&gt; = {
+          <span class="hljs-attr">server</span>: entryPath,
+        };
+
+        <span class="hljs-keyword">if</span> (prefetchPath) {
+          entryPoints.<span class="hljs-property">prefetch</span> = prefetchPath;
+        }
+
+        <span class="hljs-keyword">const</span> buildResult = esbuild.<span class="hljs-title function_">buildSync</span>({
+          <span class="hljs-attr">absWorkingDir</span>: root,
+          entryPoints,
+          <span class="hljs-attr">outdir</span>: root,
+          <span class="hljs-attr">metafile</span>: <span class="hljs-literal">true</span>,
+          <span class="hljs-attr">write</span>: <span class="hljs-literal">false</span>,
+        });
+
+        <span class="hljs-keyword">const</span> entryExportedNames = buildResult.<span class="hljs-property">metafile</span>?.<span class="hljs-property">outputs</span>[<span class="hljs-string">&#x27;server.js&#x27;</span>].<span class="hljs-property">exports</span>;
+
+        <span class="hljs-keyword">const</span> relativeEntryPath = path.<span class="hljs-title function_">relative</span>(root, entryPath);
+        <span class="hljs-keyword">if</span> (!entryExportedNames?.<span class="hljs-title function_">includes</span>(<span class="hljs-string">&#x27;default&#x27;</span>)) {
+          <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">`The component should be exported by default, file: <span class="hljs-subst">${relativeEntryPath}</span>`</span>);
+        }
+
+        <span class="hljs-keyword">const</span> prefetchExportedNames = buildResult.<span class="hljs-property">metafile</span>?.<span class="hljs-property">outputs</span>?.[<span class="hljs-string">&#x27;prefetch.js&#x27;</span>]?.<span class="hljs-property">exports</span>;
+
+        <span class="hljs-keyword">const</span> hasPrefetch = !!prefetchExportedNames;
+        <span class="hljs-keyword">const</span> isSSG = prefetchExportedNames?.<span class="hljs-title function_">includes</span>(<span class="hljs-string">&#x27;getStaticProps&#x27;</span>);
+        <span class="hljs-keyword">const</span> isSSR = prefetchExportedNames?.<span class="hljs-title function_">includes</span>(<span class="hljs-string">&#x27;default&#x27;</span>);
+
+        <span class="hljs-keyword">const</span> relativePrefetchPath = prefetchPath &amp;&amp; path.<span class="hljs-title function_">relative</span>(root, prefetchPath);
+        <span class="hljs-keyword">if</span> (hasPrefetch) {
+          <span class="hljs-keyword">if</span> (isSSG &amp;&amp; isSSR) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(
+              <span class="hljs-string">`Cannot export both &#x27;getStaticProps&#x27; and &#x27;default&#x27; at the same time in prefetch entry, please remove one of them, file: <span class="hljs-subst">${relativePrefetchPath}</span>`</span>
+            );
+          }
+          <span class="hljs-keyword">if</span> (!isSSG &amp;&amp; !isSSR &amp;&amp; prefetchExportedNames) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(
+              <span class="hljs-string">`Should export one of &#x27;getStaticProps&#x27; or &#x27;default&#x27; in prefetch entry, file: <span class="hljs-subst">${relativePrefetchPath}</span>`</span>
+            );
+          }
+        }
+
+        <span class="hljs-keyword">const</span> entryHelper = <span class="hljs-keyword">new</span> <span class="hljs-title class_">EntryHelper</span>(serverVirtualEntryCode);
+
+        entryHelper.<span class="hljs-title function_">replace</span>(__ENTRY_PATH__, <span class="hljs-string">`./<span class="hljs-subst">${relativeEntryPath}</span>`</span>);
+        <span class="hljs-keyword">if</span> (hasPrefetch) {
+          entryHelper.<span class="hljs-title function_">addReExport</span>({
+            <span class="hljs-attr">exportName</span>: isSSR ? <span class="hljs-string">&#x27;default as getServerSideProps&#x27;</span> : <span class="hljs-string">&#x27;getStaticProps&#x27;</span>,
+            <span class="hljs-attr">filepath</span>: <span class="hljs-string">`./<span class="hljs-subst">${relativePrefetchPath}</span>`</span>,
+          });
+        }
+
+        <span class="hljs-keyword">return</span> {
+          <span class="hljs-attr">loader</span>: <span class="hljs-string">&#x27;tsx&#x27;</span>,
+          <span class="hljs-attr">resolveDir</span>: root,
+          <span class="hljs-attr">contents</span>: entryHelper.<span class="hljs-title function_">toString</span>(),
+        };
+      })
+</code></pre>
+<p>下面是 <code>basic</code> 为例子生成的 <code>server/ssr.js</code> 的简化版本:</p>
+<pre><code class="language-js"><span class="hljs-comment">// server/ssr.js</span>
+<span class="hljs-comment">// React 组件</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">Component</span>(<span class="hljs-params"></span>) {}
+<span class="hljs-comment">// 数据预取函数</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">getServerSideProps</span>(<span class="hljs-params"></span>){}
+</code></pre>
+<h3 id="server-实现">Server 实现</h3>
+<p><code>BaseServer</code> 中也是包含了一些通用逻辑，开发模式和生产模式分别实现子类。通用逻辑有：</p>
+<ul>
+<li>
+<p>初始化一些 Polyfill ，这些 Polyfill 用于 Node.js 中运行一些浏览器常用的 API，例如 <code>atob</code>, <code>btoa</code>, fetch API 的 <code>Headers</code>, <code>Request</code> 和 <code>Response</code> 等，参考了 remix-node 进行实现。</p>
+</li>
+<li>
+<p>定义一个 Connect 实例 <code>middlewares</code>，负责串联服务器的所有逻辑，用户可以通过向 <code>middlewares</code> 中 <code>push</code> 新的处理函数来自定义服务器的行为。</p>
+</li>
+<li>
+<p><code>prepare</code> 函数，供 Server 内部执行一些异步函数，确保异步函数执行完之后再调用 Server 的具体方法。</p>
+</li>
+<li>
+<p><code>handleStatic</code> 处理静态资源的逻辑。</p>
+</li>
+<li>
+<p><code>handleServerSideRequest</code> 处理服务端请求。包含 SSR 请求时，服务端的逻辑，会执行 server 产物中的数据预取函数并完成脱水流程。</p>
+<pre><code class="language-ts"><span class="hljs-keyword">export</span> <span class="hljs-keyword">abstract</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">BaseServer</span> {
+  <span class="hljs-comment">// ...</span>
+  handleServerSideRequest = <span class="hljs-keyword">async</span> (<span class="hljs-attr">req</span>: <span class="hljs-title class_">IncomingMessage</span>, <span class="hljs-attr">res</span>: <span class="hljs-title class_">ServerResponse</span>) =&gt; {
+      <span class="hljs-keyword">const</span> { framework, pages, baseUrl } = <span class="hljs-variable language_">this</span>.<span class="hljs-property">ssrOptions</span>;
+      <span class="hljs-keyword">const</span> { dev, root } = <span class="hljs-variable language_">this</span>.<span class="hljs-property">options</span>;
+
+      <span class="hljs-keyword">if</span> (!req.<span class="hljs-property">url</span>) {
+        <span class="hljs-keyword">return</span>;
+      }
+
+      <span class="hljs-keyword">const</span> url = <span class="hljs-keyword">new</span> <span class="hljs-title function_">URL</span>(req.<span class="hljs-property">url</span>, <span class="hljs-string">`http://<span class="hljs-subst">${req.headers.host}</span>`</span>);
+
+      <span class="hljs-keyword">const</span> matchedPage = <span class="hljs-title function_">matchPage</span>({
+        pages,
+        <span class="hljs-attr">pathname</span>: url.<span class="hljs-property">pathname</span>,
+        baseUrl,
+      });
+
+      <span class="hljs-keyword">const</span> { prefetchTypeMap } = <span class="hljs-variable language_">this</span>.<span class="hljs-property">manifest</span>;
+
+      <span class="hljs-keyword">if</span> (matchedPage?.<span class="hljs-property">name</span>) {
+        <span class="hljs-comment">// production, serve page as static files</span>
+        <span class="hljs-keyword">if</span> (prefetchTypeMap[matchedPage.<span class="hljs-property">name</span>] === <span class="hljs-variable constant_">PREFETCH_TYPE</span>.<span class="hljs-property">SSG</span> &amp;&amp; !dev) {
+          <span class="hljs-keyword">return</span>;
+        }
+
+        <span class="hljs-keyword">const</span> template = fs.<span class="hljs-title function_">readFileSync</span>(<span class="hljs-title function_">getHtmlPath</span>(<span class="hljs-variable language_">this</span>.<span class="hljs-property">dist</span>, matchedPage.<span class="hljs-property">name</span>), <span class="hljs-string">&#x27;utf-8&#x27;</span>);
+
+        <span class="hljs-keyword">if</span> (url.<span class="hljs-property">searchParams</span>.<span class="hljs-title function_">has</span>(<span class="hljs-string">&#x27;csr&#x27;</span>)) {
+          <span class="hljs-keyword">return</span> res.<span class="hljs-title function_">end</span>(template);
+        }
+
+        <span class="hljs-comment">// should not cache html files in browser</span>
+        <span class="hljs-comment">// https://nextjs.org/docs/going-to-production#caching</span>
+        res.<span class="hljs-title function_">setHeader</span>(<span class="hljs-string">&#x27;Cache-Control&#x27;</span>, <span class="hljs-string">&#x27;no-cache, no-store, max-age=0, must-revalidate&#x27;</span>);
+
+        <span class="hljs-keyword">if</span> (framework === <span class="hljs-string">&#x27;react&#x27;</span>) {
+          <span class="hljs-comment">// Renderer 内部会根据当前请求页面是 SSR 还是 SSG 去进行不同的渲染逻辑；可以直接根据构建产物的 export 名称来判断</span>
+          <span class="hljs-keyword">const</span> renderer = <span class="hljs-keyword">new</span> <span class="hljs-title class_">Renderer</span>({
+            baseUrl,
+            <span class="hljs-attr">dist</span>: <span class="hljs-variable language_">this</span>.<span class="hljs-property">dist</span>,
+            matchedPage,
+            <span class="hljs-attr">name</span>: matchedPage.<span class="hljs-property">name</span>,
+            template,
+            pages,
+            root,
+            dev,
+            <span class="hljs-attr">pageMeta</span>: <span class="hljs-variable language_">this</span>.<span class="hljs-property">manifest</span>.<span class="hljs-property">entryMeta</span>[matchedPage.<span class="hljs-property">name</span>],
+            <span class="hljs-attr">assetsMeta</span>: <span class="hljs-variable language_">this</span>.<span class="hljs-property">manifest</span>.<span class="hljs-property">assetsMeta</span> ?? {},
+            <span class="hljs-attr">isModule</span>: <span class="hljs-variable language_">this</span>.<span class="hljs-property">manifest</span>.<span class="hljs-property">format</span> === <span class="hljs-string">&#x27;esm&#x27;</span>,
+          });
+          <span class="hljs-comment">// 借鉴了 Remix 的思想，将所有请求转化为 fetch API req/res 来进行处理，renderer 只需考虑 fetch API 即可</span>
+          <span class="hljs-keyword">const</span> response = <span class="hljs-keyword">await</span> <span class="hljs-title function_">withFetchAPI</span>(req, res, <span class="hljs-keyword">async</span> (request) =&gt; {
+            <span class="hljs-keyword">return</span> renderer.<span class="hljs-title function_">render</span>(request);
+          });
+          <span class="hljs-keyword">return</span> response;
+        }
+        <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">`universal server for framework <span class="hljs-subst">${framework}</span> has not been implemented`</span>);
+      }
+    };
+}
+</code></pre>
+</li>
+</ul>
+<p><code>DevServer</code> 需要增加 <code>handleStatic</code> 函数的逻辑，由于 Speedy 内部已经实现了对静态资源的 server，直接对其进行代理即可：</p>
+<pre><code class="language-ts"><span class="hljs-keyword">class</span> <span class="hljs-title class_">DevServer</span> {
+  <span class="hljs-comment">// ...</span>
+  <span class="hljs-attr">handleRequest</span>: <span class="hljs-title class_">SimpleHandleFunction</span> = <span class="hljs-keyword">async</span> (<span class="hljs-attr">req</span>: <span class="hljs-title class_">IncomingMessage</span>, <span class="hljs-attr">res</span>: <span class="hljs-title class_">ServerResponse</span>) =&gt; {
+      <span class="hljs-variable language_">this</span>.<span class="hljs-title function_">setHttpProxyHandler</span>(req);
+      <span class="hljs-keyword">try</span> {
+        <span class="hljs-keyword">const</span> resp = <span class="hljs-keyword">await</span> <span class="hljs-variable language_">this</span>.<span class="hljs-title function_">handleServerSideRequest</span>(req, res);
+        <span class="hljs-keyword">if</span> (resp) {
+          <span class="hljs-keyword">return</span>;
+        }
+      } <span class="hljs-keyword">catch</span> (e) {
+        <span class="hljs-variable language_">console</span>.<span class="hljs-title function_">log</span>(e);
+      }
+
+      <span class="hljs-keyword">if</span> (path.<span class="hljs-title function_">parse</span>(req.<span class="hljs-property">url</span> ?? <span class="hljs-string">&#x27;/&#x27;</span>).<span class="hljs-property">ext</span>) {
+        <span class="hljs-keyword">return</span> <span class="hljs-variable language_">this</span>.<span class="hljs-title function_">handleStatic</span>(req, res);
+      }
+
+      <span class="hljs-keyword">return</span> res.<span class="hljs-title function_">end</span>(<span class="hljs-title function_">renderNotFound</span>());
+    };
+  <span class="hljs-attr">handleStatic</span>: <span class="hljs-title class_">SimpleHandleFunction</span> = <span class="hljs-function">(<span class="hljs-params">req, res</span>) =&gt;</span> {
+    <span class="hljs-keyword">const</span> httpProxy = <span class="hljs-variable language_">this</span>.<span class="hljs-title function_">getHttpProxy</span>();
+    <span class="hljs-comment">// https://nextjs.org/docs/going-to-production#caching</span>
+    res.<span class="hljs-title function_">setHeader</span>(<span class="hljs-string">&#x27;Cache-Control&#x27;</span>, <span class="hljs-string">&#x27;no-cache, no-store, max-age=0, must-revalidate&#x27;</span>);
+    httpProxy.<span class="hljs-title function_">web</span>(req, res);
+  };
+  <span class="hljs-comment">// ...</span>
+}
+</code></pre>
+<p>对于 <code>ProdServer</code>，则有不同的 <code>handleStatic</code> 逻辑，从产物中进行 serve:</p>
+<pre><code class="language-ts"><span class="hljs-attr">handleStatic</span>: <span class="hljs-title class_">Connect</span>.<span class="hljs-property">SimpleHandleFunction</span> = <span class="hljs-function">(<span class="hljs-params">req, res</span>) =&gt;</span> {
+  <span class="hljs-keyword">const</span> { <span class="hljs-attr">url</span>: reqUrl = <span class="hljs-string">&#x27;&#x27;</span> } = req;
+  <span class="hljs-keyword">const</span> publicPath = <span class="hljs-title function_">getPublicPath</span>(<span class="hljs-variable language_">this</span>.<span class="hljs-property">manifest</span>.<span class="hljs-property">publicPath</span>);
+  <span class="hljs-keyword">const</span> { baseUrl } = <span class="hljs-variable language_">this</span>.<span class="hljs-property">ssrOptions</span>;
+  <span class="hljs-keyword">const</span> name = reqUrl
+    .<span class="hljs-title function_">split</span>(<span class="hljs-string">&#x27;?&#x27;</span>)[<span class="hljs-number">0</span>]
+    .<span class="hljs-title function_">replace</span>(<span class="hljs-regexp">/.html?$/</span>, <span class="hljs-string">&#x27;&#x27;</span>)
+    .<span class="hljs-title function_">replace</span>(baseUrl, <span class="hljs-string">&#x27;&#x27;</span>)
+    .<span class="hljs-title function_">slice</span>(baseUrl === <span class="hljs-string">&#x27;/&#x27;</span> ? <span class="hljs-number">0</span> : <span class="hljs-number">1</span>);
+
+  <span class="hljs-keyword">const</span> filename = <span class="hljs-title function_">getFilenameFromUrl</span>(<span class="hljs-string">`/<span class="hljs-subst">${name ?? <span class="hljs-string">&#x27;&#x27;</span>}</span>`</span>, [
+    {
+      publicPath,
+      <span class="hljs-attr">outputPath</span>: <span class="hljs-variable language_">this</span>.<span class="hljs-property">dist</span>,
+    },
+  ]);
+
+  <span class="hljs-keyword">if</span> (!filename || !fs.<span class="hljs-title function_">existsSync</span>(filename) || fs.<span class="hljs-title function_">lstatSync</span>(filename).<span class="hljs-title function_">isDirectory</span>()) {
+    res.<span class="hljs-property">statusCode</span> = <span class="hljs-number">404</span>;
+    res.<span class="hljs-title function_">end</span>(<span class="hljs-string">&#x27;Page Not Found&#x27;</span>);
+    <span class="hljs-keyword">return</span>;
+  }
+
+  <span class="hljs-keyword">const</span> reqPath = <span class="hljs-built_in">decodeURI</span>(url.<span class="hljs-title function_">parse</span>(reqUrl).<span class="hljs-property">pathname</span> || <span class="hljs-string">&#x27;&#x27;</span>);
+
+  <span class="hljs-keyword">const</span> mimeType = <span class="hljs-title function_">lookup</span>(reqPath) || <span class="hljs-title function_">lookup</span>(filename);
+  <span class="hljs-keyword">if</span> (mimeType) {
+    res.<span class="hljs-title function_">setHeader</span>(<span class="hljs-string">&#x27;Content-Type&#x27;</span>, mimeType);
+  }
+
+  res.<span class="hljs-property">statusCode</span> = <span class="hljs-number">200</span>;
+  <span class="hljs-comment">// https://developers.google.com/web/fundamentals/performance/webpack/use-long-term-caching</span>
+  <span class="hljs-comment">// https://nextjs.org/docs/going-to-production#caching</span>
+  res.<span class="hljs-title function_">setHeader</span>(<span class="hljs-string">&#x27;Cache-Control&#x27;</span>, <span class="hljs-string">&#x27;public, max-age=31536000, immutable&#x27;</span>);
+  fs.<span class="hljs-title function_">createReadStream</span>(filename).<span class="hljs-title function_">pipe</span>(res);
+};
+</code></pre>
+<p>然后我们实现了 <code>universal</code> 这个脚本，添加 <code>universal dev</code> 和 <code>universal build</code> 分别来进行开发和构建，可以用 <code>universal start</code> 来启动 <code>ProdServer</code>。</p>
+<h3 id="adapter-实现">Adapter 实现</h3>
+<p>为了让我们的代码不仅能在 Node.js 环境下面通过 <code>universal</code> CLI 来部署，还想在 Vercel 和 CloudFlare 以及公司内的其他 Serverless 或者 Edge 上部署，我们参考了 <a href="https://remix.run/docs/en/main/other-api/adapter">Remix Adapter</a> 的思想来支持不同的适配器，实现不同环境部署。</p>
+<p>例如 Vercel Adapter 实现如下:</p>
+<pre><code class="language-ts"><span class="hljs-comment">// packages/universal/src/adapters/vercel/index.ts</span>
+<span class="hljs-keyword">import</span> <span class="hljs-keyword">type</span> { <span class="hljs-title class_">IncomingMessage</span>, <span class="hljs-title class_">ServerResponse</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;http&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">ProdServer</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;../../server/prod-server&#x27;</span>;
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">VercelAdapterOptions</span> {
+  root?: <span class="hljs-built_in">string</span>;
+}
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">createVercelHandler</span>(<span class="hljs-params">{ root = process.cwd() }: VercelAdapterOptions = {}</span>): <span class="hljs-function">(<span class="hljs-params">
+  req: IncomingMessage,
+  res: ServerResponse
+</span>) =&gt;</span> <span class="hljs-built_in">void</span> {
+  <span class="hljs-keyword">const</span> server = <span class="hljs-keyword">new</span> <span class="hljs-title class_">ProdServer</span>({ root });
+
+  <span class="hljs-keyword">return</span> <span class="hljs-keyword">async</span> (<span class="hljs-attr">req</span>: <span class="hljs-title class_">IncomingMessage</span>, <span class="hljs-attr">res</span>: <span class="hljs-title class_">ServerResponse</span>) =&gt; {
+    <span class="hljs-keyword">await</span> server.<span class="hljs-title function_">prepare</span>();
+
+    <span class="hljs-keyword">const</span> handler = server.<span class="hljs-title function_">getRequestHandler</span>();
+    <span class="hljs-keyword">return</span> <span class="hljs-title function_">handler</span>(req, res);
+  };
+}
+
+</code></pre>
+<p>在项目根目录创建 <code>server.vercel.js</code>:</p>
+<pre><code class="language-js"><span class="hljs-comment">// server.vercel.js</span>
+<span class="hljs-comment">// @ts-check</span>
+
+<span class="hljs-keyword">const</span> { createVercelHandler } = <span class="hljs-built_in">require</span>(<span class="hljs-string">&#x27;@speedy-js/universal/adapters/vercel&#x27;</span>);
+
+<span class="hljs-variable language_">module</span>.<span class="hljs-property">exports</span> = <span class="hljs-title function_">createVercelHandler</span>();
+</code></pre>
+<p><code>vercel.json</code>:</p>
+<pre><code class="language-json"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;version&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">2</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;public&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-keyword">false</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;github&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;enabled&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-keyword">false</span>
+  <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;builds&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">&quot;src&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;./server.vercel.js&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;use&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;@vercel/node&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;config&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+        <span class="hljs-attr">&quot;//&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;https://github.com/vercel/vercel/issues/1788#issuecomment-485629244&quot;</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">&quot;includeFiles&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;./.universal/**&quot;</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">&quot;bundle&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-keyword">false</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">&quot;maxLambdaSize&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;50mb&quot;</span>
+      <span class="hljs-punctuation">}</span>
+    <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;routes&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">&quot;src&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;/(.*)&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;dest&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;/server.vercel.js&quot;</span>
+    <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
+
+</code></pre>
+<p>运行 <code>vercel --prod</code> 即可部署到 Vercel。</p>
+<hr>
+<p>CF Worker 的 Adapter 实现也很简单:</p>
+<pre><code class="language-js"><span class="hljs-comment">/// &lt;reference lib=&quot;dom.iterable&quot;/&gt;</span>
+
+<span class="hljs-keyword">import</span> { getAssetFromKV, <span class="hljs-title class_">MethodNotAllowedError</span>, <span class="hljs-title class_">NotFoundError</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@cloudflare/kv-asset-handler&#x27;</span>;
+<span class="hljs-keyword">import</span> type { <span class="hljs-title class_">CloudflareBuildManifest</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./interface&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-variable constant_">PREFETCH_TYPE</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;../../interface&#x27;</span>;
+<span class="hljs-keyword">import</span> { renderToHTML } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;../../helpers/render&#x27;</span>;
+<span class="hljs-keyword">import</span> { getQuery } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;../../helpers/getQuery&#x27;</span>;
+<span class="hljs-keyword">import</span> { matchPage, <span class="hljs-title class_">PageMatch</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;../../helpers/matchPage&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">FetchEvent</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;../../../client&#x27;</span>;
+
+<span class="hljs-keyword">export</span> * <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./interface&#x27;</span>;
+
+<span class="hljs-keyword">export</span> interface <span class="hljs-title class_">CloudflareWorkerAdapterOptions</span> {
+  dev?: boolean;
+  root?: string;
+  <span class="hljs-attr">manifest</span>: <span class="hljs-title class_">CloudflareBuildManifest</span>;
+}
+
+<span class="hljs-keyword">export</span> interface <span class="hljs-title class_">CloudflareWorkerServerOptions</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">CloudflareWorkerAdapterOptions</span> {
+  <span class="hljs-attr">event</span>: <span class="hljs-title class_">FetchEvent</span>;
+}
+
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">CloudflareWorkerServer</span> {
+  <span class="hljs-attr">options</span>: <span class="hljs-title class_">CloudflareWorkerServerOptions</span>;
+
+  <span class="hljs-attr">pathname</span>: string;
+
+  <span class="hljs-attr">origin</span>: string;
+
+  <span class="hljs-attr">url</span>: <span class="hljs-variable constant_">URL</span>;
+
+  <span class="hljs-attr">matchedPage</span>: <span class="hljs-title class_">PageMatch</span> | <span class="hljs-literal">undefined</span>;
+
+  <span class="hljs-title function_">constructor</span>(<span class="hljs-params">options: CloudflareWorkerServerOptions</span>) {
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">options</span> = options;
+
+    <span class="hljs-keyword">const</span> { event } = <span class="hljs-variable language_">this</span>.<span class="hljs-property">options</span>;
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">url</span> = <span class="hljs-keyword">new</span> <span class="hljs-title function_">URL</span>(event.<span class="hljs-property">request</span>.<span class="hljs-property">url</span>);
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">pathname</span> = <span class="hljs-variable language_">this</span>.<span class="hljs-property">url</span>.<span class="hljs-property">pathname</span>;
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">origin</span> = <span class="hljs-variable language_">this</span>.<span class="hljs-property">url</span>.<span class="hljs-property">origin</span>;
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">matchedPage</span> = <span class="hljs-variable language_">this</span>.<span class="hljs-title function_">matchPageName</span>(<span class="hljs-variable language_">this</span>.<span class="hljs-property">pathname</span>)!;
+  }
+
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">handleAssets</span>(): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-title class_">Response</span>&gt; {
+    <span class="hljs-keyword">const</span> { pathname } = <span class="hljs-variable language_">this</span>;
+    <span class="hljs-keyword">try</span> {
+      <span class="hljs-keyword">return</span> <span class="hljs-keyword">await</span> <span class="hljs-title function_">getAssetFromKV</span>(<span class="hljs-variable language_">this</span>.<span class="hljs-property">options</span>.<span class="hljs-property">event</span>, {
+        <span class="hljs-attr">mapRequestToAsset</span>: <span class="hljs-function">(<span class="hljs-params">request</span>) =&gt;</span> {
+          <span class="hljs-comment">// 这里使用了 manifest 文件</span>
+          <span class="hljs-keyword">const</span> { baseUrl } = <span class="hljs-variable language_">this</span>.<span class="hljs-property">options</span>.<span class="hljs-property">manifest</span>.<span class="hljs-property">ssrOptions</span>;
+          <span class="hljs-keyword">if</span> (pathname.<span class="hljs-title function_">startsWith</span>(baseUrl)) {
+            <span class="hljs-keyword">if</span> (<span class="hljs-variable language_">this</span>.<span class="hljs-property">matchedPage</span>?.<span class="hljs-property">name</span>) {
+              <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Request</span>(<span class="hljs-keyword">new</span> <span class="hljs-title function_">URL</span>(<span class="hljs-string">`<span class="hljs-subst">${<span class="hljs-variable language_">this</span>.matchedPage.name}</span>.html`</span>, <span class="hljs-variable language_">this</span>.<span class="hljs-property">origin</span>).<span class="hljs-property">href</span>);
+            }
+            <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Request</span>(<span class="hljs-keyword">new</span> <span class="hljs-title function_">URL</span>(pathname.<span class="hljs-title function_">replace</span>(baseUrl, <span class="hljs-string">&#x27;&#x27;</span>), <span class="hljs-variable language_">this</span>.<span class="hljs-property">origin</span>).<span class="hljs-property">href</span>);
+          }
+          <span class="hljs-keyword">return</span> request;
+        },
+      });
+    } <span class="hljs-keyword">catch</span> (e) {
+      <span class="hljs-keyword">if</span> (e <span class="hljs-keyword">instanceof</span> <span class="hljs-title class_">NotFoundError</span>) {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Response</span>(<span class="hljs-string">&#x27;NotFoundError&#x27;</span>, { <span class="hljs-attr">status</span>: <span class="hljs-number">404</span> });
+      }
+      <span class="hljs-keyword">if</span> (e <span class="hljs-keyword">instanceof</span> <span class="hljs-title class_">MethodNotAllowedError</span>) {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Response</span>(<span class="hljs-string">&#x27;MethodNotAllowedError&#x27;</span>, { <span class="hljs-attr">status</span>: <span class="hljs-number">500</span> });
+      }
+      <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Response</span>(<span class="hljs-string">&#x27;An unexpected error occurred&#x27;</span>, { <span class="hljs-attr">status</span>: <span class="hljs-number">500</span> });
+    }
+  }
+
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">getAsset</span>(<span class="hljs-attr">url</span>: string): <span class="hljs-title class_">Promise</span>&lt;string&gt; {
+    <span class="hljs-keyword">const</span> res = <span class="hljs-keyword">await</span> <span class="hljs-title function_">getAssetFromKV</span>({
+      <span class="hljs-attr">request</span>: <span class="hljs-keyword">new</span> <span class="hljs-title class_">Request</span>(<span class="hljs-keyword">new</span> <span class="hljs-title function_">URL</span>(url, <span class="hljs-variable language_">this</span>.<span class="hljs-property">origin</span>).<span class="hljs-property">href</span>),
+      <span class="hljs-attr">waitUntil</span>: <span class="hljs-function">() =&gt;</span> {},
+    });
+    <span class="hljs-keyword">return</span> res.<span class="hljs-title function_">text</span>();
+  }
+
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">handleSSRRequest</span>(): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-title class_">Response</span>&gt; {
+    <span class="hljs-keyword">const</span> {
+      manifest,
+      <span class="hljs-attr">event</span>: { request },
+    } = <span class="hljs-variable language_">this</span>.<span class="hljs-property">options</span>;
+    <span class="hljs-keyword">const</span> { pathname, search } = <span class="hljs-variable language_">this</span>.<span class="hljs-property">url</span>;
+    <span class="hljs-keyword">if</span> (!<span class="hljs-variable language_">this</span>.<span class="hljs-property">matchedPage</span>) <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Response</span>(<span class="hljs-string">&#x27;No matched SSR page&#x27;</span>, { <span class="hljs-attr">status</span>: <span class="hljs-number">404</span> });
+
+    <span class="hljs-keyword">const</span> templateHtmlPath = <span class="hljs-string">`/<span class="hljs-subst">${<span class="hljs-variable language_">this</span>.matchedPage.name}</span>.html`</span>;
+    <span class="hljs-keyword">const</span> template = <span class="hljs-keyword">await</span> <span class="hljs-variable language_">this</span>.<span class="hljs-title function_">getAsset</span>(templateHtmlPath);
+
+    <span class="hljs-keyword">const</span> { <span class="hljs-title class_">Component</span>, getServerSideProps } = manifest.<span class="hljs-property">exportsMap</span>[<span class="hljs-variable language_">this</span>.<span class="hljs-property">matchedPage</span>.<span class="hljs-property">name</span>].<span class="hljs-property">server</span>;
+    <span class="hljs-keyword">const</span> response = <span class="hljs-keyword">new</span> <span class="hljs-title class_">Response</span>();
+    <span class="hljs-keyword">try</span> {
+      <span class="hljs-keyword">const</span> html = <span class="hljs-keyword">await</span> <span class="hljs-title function_">renderToHTML</span>({
+        <span class="hljs-title class_">Component</span>,
+        getServerSideProps,
+        <span class="hljs-attr">assetsMeta</span>: manifest.<span class="hljs-property">assetsMeta</span>,
+        <span class="hljs-attr">basename</span>: manifest.<span class="hljs-property">ssrOptions</span>.<span class="hljs-property">baseUrl</span>,
+        template,
+        <span class="hljs-attr">pages</span>: manifest.<span class="hljs-property">ssrOptions</span>.<span class="hljs-property">pages</span>,
+        <span class="hljs-attr">matchedPage</span>: <span class="hljs-variable language_">this</span>.<span class="hljs-property">matchedPage</span>,
+        <span class="hljs-attr">context</span>: {
+          request,
+          response,
+          pathname,
+          <span class="hljs-attr">query</span>: <span class="hljs-title function_">getQuery</span>(search),
+        },
+        <span class="hljs-attr">isModule</span>: manifest.<span class="hljs-property">format</span> === <span class="hljs-string">&#x27;esm&#x27;</span>,
+      });
+      <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Response</span>(html, {
+        ...response,
+        <span class="hljs-attr">headers</span>: { ...<span class="hljs-title class_">Object</span>.<span class="hljs-title function_">fromEntries</span>(response.<span class="hljs-property">headers</span>.<span class="hljs-title function_">entries</span>()), <span class="hljs-string">&#x27;Content-Type&#x27;</span>: <span class="hljs-string">&#x27;text/html&#x27;</span> },
+      });
+    } <span class="hljs-keyword">catch</span> (<span class="hljs-attr">err</span>: any) {
+      <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">`Error when calling render function of server file: <span class="hljs-subst">${templateHtmlPath}</span>`</span>);
+    }
+  }
+
+  <span class="hljs-title function_">matchPageName</span>(<span class="hljs-params">pathname: string</span>) {
+    <span class="hljs-keyword">const</span> { ssrOptions } = <span class="hljs-variable language_">this</span>.<span class="hljs-property">options</span>.<span class="hljs-property">manifest</span>;
+    <span class="hljs-keyword">const</span> match = <span class="hljs-title function_">matchPage</span>({ <span class="hljs-attr">pages</span>: ssrOptions.<span class="hljs-property">pages</span>, pathname, <span class="hljs-attr">baseUrl</span>: ssrOptions.<span class="hljs-property">baseUrl</span> });
+    <span class="hljs-keyword">return</span> match;
+  }
+
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">handleRequest</span>(<span class="hljs-params"></span>) {
+    <span class="hljs-keyword">const</span> { request } = <span class="hljs-variable language_">this</span>.<span class="hljs-property">options</span>.<span class="hljs-property">event</span>;
+    <span class="hljs-keyword">const</span> { ssrOptions, prefetchTypeMap, exportsMap } = <span class="hljs-variable language_">this</span>.<span class="hljs-property">options</span>.<span class="hljs-property">manifest</span>;
+    <span class="hljs-keyword">const</span> { framework } = ssrOptions;
+
+    <span class="hljs-keyword">const</span> { searchParams } = <span class="hljs-variable language_">this</span>.<span class="hljs-property">url</span>;
+    <span class="hljs-keyword">if</span> (searchParams.<span class="hljs-title function_">get</span>(<span class="hljs-string">&#x27;__data&#x27;</span>)) {
+      <span class="hljs-keyword">if</span> (!<span class="hljs-variable language_">this</span>.<span class="hljs-property">matchedPage</span>) {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Response</span>(<span class="hljs-string">&#x27;No matched SSR page for data&#x27;</span>, { <span class="hljs-attr">status</span>: <span class="hljs-number">404</span> });
+      }
+      <span class="hljs-keyword">const</span> { getServerSideProps } = exportsMap[<span class="hljs-variable language_">this</span>.<span class="hljs-property">matchedPage</span>.<span class="hljs-property">name</span>].<span class="hljs-property">server</span>;
+      <span class="hljs-keyword">if</span> (!getServerSideProps) {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Response</span>(<span class="hljs-string">&#x27;No matched SSR export getServerSideProps for data&#x27;</span>, { <span class="hljs-attr">status</span>: <span class="hljs-number">404</span> });
+      }
+      <span class="hljs-keyword">const</span> response = <span class="hljs-keyword">new</span> <span class="hljs-title class_">Response</span>();
+      <span class="hljs-keyword">const</span> data = <span class="hljs-keyword">await</span> <span class="hljs-title function_">getServerSideProps</span>({
+        request,
+        response,
+        <span class="hljs-attr">pathname</span>: <span class="hljs-variable language_">this</span>.<span class="hljs-property">pathname</span> ?? <span class="hljs-string">&#x27;/&#x27;</span>,
+        <span class="hljs-attr">query</span>: searchParams,
+      });
+      <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Response</span>(<span class="hljs-title class_">JSON</span>.<span class="hljs-title function_">stringify</span>(data), {
+        ...response,
+        <span class="hljs-attr">headers</span>: {
+          ...<span class="hljs-title class_">Object</span>.<span class="hljs-title function_">fromEntries</span>(response.<span class="hljs-property">headers</span>.<span class="hljs-title function_">entries</span>()),
+          <span class="hljs-string">&#x27;Content-Type&#x27;</span>: <span class="hljs-string">&#x27;application/json&#x27;</span>,
+        },
+      });
+    }
+
+    <span class="hljs-keyword">if</span> (<span class="hljs-variable language_">this</span>.<span class="hljs-property">matchedPage</span>?.<span class="hljs-property">name</span>) {
+      <span class="hljs-keyword">if</span> (prefetchTypeMap[<span class="hljs-variable language_">this</span>.<span class="hljs-property">matchedPage</span>.<span class="hljs-property">name</span>] === <span class="hljs-variable constant_">PREFETCH_TYPE</span>.<span class="hljs-property">SSR</span>) {
+        <span class="hljs-keyword">if</span> (framework === <span class="hljs-string">&#x27;react&#x27;</span>) {
+          <span class="hljs-keyword">return</span> <span class="hljs-variable language_">this</span>.<span class="hljs-title function_">handleSSRRequest</span>();
+        }
+        <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">`universal server for framework <span class="hljs-subst">${framework}</span> has not been implemented`</span>);
+      }
+    }
+    <span class="hljs-comment">// 其他情况的话是静态资源，使用 CF Worker 的 KV 存储处理，构建产物需要上传到 KV 存储</span>
+    <span class="hljs-keyword">return</span> <span class="hljs-variable language_">this</span>.<span class="hljs-title function_">handleAssets</span>();
+  }
+}
+
+<span class="hljs-comment">// 给的是 fetchAPI Request，我们要返回 fetchAPI Response</span>
+<span class="hljs-comment">// <span class="hljs-doctag">TODO:</span> proxy the web socket connection when developing</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">createCloudflareWorkerHandler</span>(<span class="hljs-params">options: CloudflareWorkerAdapterOptions</span>): <span class="hljs-function">(<span class="hljs-params">event: FetchEvent</span>) =&gt;</span> <span class="hljs-keyword">void</span> {
+  <span class="hljs-keyword">return</span> <span class="hljs-function">(<span class="hljs-params">event</span>) =&gt;</span> {
+    <span class="hljs-keyword">const</span> server = <span class="hljs-keyword">new</span> <span class="hljs-title class_">CloudflareWorkerServer</span>({
+      ...options,
+      event,
+    });
+    event.<span class="hljs-title function_">respondWith</span>(server.<span class="hljs-title function_">handleRequest</span>());
+  };
+}
+
+</code></pre>
+<p>其中用到了 manifest 文件来实现导入对应页面的代码，manifest 是由 <code>clientPlugin</code> 生成的:</p>
+<p><img src="https://s2.loli.net/2023/05/21/WAzLY2lEGQxvdft.png" alt="manifest"></p>
+<p>配置 <code>wrangler.toml</code>:</p>
+<pre><code class="language-toml"><span class="hljs-attr">name</span> = <span class="hljs-string">&quot;ssr-react-example&quot;</span>
+<span class="hljs-attr">type</span> = <span class="hljs-string">&quot;javascript&quot;</span>
+
+<span class="hljs-attr">zone_id</span> = <span class="hljs-string">&quot;&quot;</span>
+<span class="hljs-attr">account_id</span> = <span class="hljs-string">&quot;&quot;</span>
+<span class="hljs-attr">route</span> = <span class="hljs-string">&quot;&quot;</span>
+<span class="hljs-attr">workers_dev</span> = <span class="hljs-literal">true</span>
+
+<span class="hljs-section">[site]</span>
+<span class="hljs-comment"># These two settings are necessary to save the assets to CF KV storage</span>
+<span class="hljs-comment"># https://developers.cloudflare.com/workers/cli-wrangler/commands#kvkey</span>
+<span class="hljs-comment"># https://developers.cloudflare.com/workers/cli-wrangler/configuration#site</span>
+<span class="hljs-attr">bucket</span> = <span class="hljs-string">&quot;.universal&quot;</span>
+<span class="hljs-attr">entry-point</span> = <span class="hljs-string">&quot;.&quot;</span>
+
+<span class="hljs-section">[build]</span>
+<span class="hljs-attr">command</span> = <span class="hljs-string">&quot;pnpm build:cf-worker&quot;</span>
+<span class="hljs-attr">watch_dir</span> = <span class="hljs-string">&quot;src&quot;</span>
+
+<span class="hljs-section">[build.upload]</span>
+<span class="hljs-attr">format</span>=<span class="hljs-string">&quot;service-worker&quot;</span>
+
+</code></pre>
+<p>部署的话运行 <code>wrangler publish</code> 即可。</p>
+<h2 id="总结与思考">总结与思考</h2>
+<p>本文介绍的是 Speedy 的 SSR 实现，在实现 Speedy SSR 的过程中参考了 Vite、Next.js 和 Remix。其实业界的 SSR 实现总体思路都是基本上一致的，主要的点有：</p>
+<ul>
+<li>一份代码，两份产物，实现客户端和服务端复用</li>
+<li>开发体验，API 设计简洁，可拓展性强，开发速度快</li>
+<li>部署到不同的环境的支持</li>
+<li>性能提升，最终的目标是提升页面的首屏性能，达到秒开的目的。</li>
+</ul>
+<p>Speedy 最终以失败而告终，去年已经逐渐不再维护了，主要还是 esbuild 的关注点和其他构建工具不一样，例如 HMR、拆包等就做的很不好；Rspack 成为了团队新推的构建工具，两者都借鉴了 Webpack 的插件体系，想做的东西也很类似，就是提升大家的开发效率，不过我没有参与过 Rspack 的开发，就不是很熟悉了。</p>
+<h2 id="参考资料">参考资料</h2>
+<ol>
+<li><a href="http://www.ayqy.net/blog/diference-between-ssr-and-jsp-php/">SSR与当年的JSP、PHP有什么区别？</a></li>
+<li><a href="https://vitejs.dev/guide/ssr.html">https://vitejs.dev/guide/ssr.html</a></li>
+<li><a href="https://github.com/vitejs/vite/tree/main/packages/playground">https://github.com/vitejs/vite/tree/main/packages/playground</a></li>
+<li><a href="https://github.com/frandiox/vite-ssr">https://github.com/frandiox/vite-ssr</a></li>
+<li><a href="https://vitedge.js.org/">https://vitedge.js.org/</a></li>
+<li><a href="https://vercel.com/guides/using-express-with-vercel">https://vercel.com/guides/using-express-with-vercel</a></li>
+<li><a href="https://blog.cloudflare.com/serverless-rendering-with-cloudflare-workers/">https://blog.cloudflare.com/serverless-rendering-with-cloudflare-workers/</a></li>
+<li><a href="https://next-code-elimination.vercel.app/">https://next-code-elimination.vercel.app/</a></li>
+</ol>
+
+        <script async src="https://cdn.jsdelivr.net/npm/katex-copytex@latest/dist/katex-copytex.min.js"></script>
+        
+    </body>
+    </html>
