@@ -32,7 +32,7 @@ tags:
 
 ## 服务端渲染的原理
 
-### 数据预取（Data fetching/Prefetch）、脱水（Hydration）和水合（Rehydration）
+### 数据预取（Data fetching/Prefetch）、脱水（Dehydration）和水合（Hydration）
 
 传统的 CSR 流程如下图所示：
 
@@ -56,6 +56,8 @@ SSR 流程如下图所示：
 | 客户端直接渲染 | [`AngularPlatformBrowser.bootstrapApplication()`](https://github.com/angular/angular/blob/66d78a7dcc397369ab53248639526cdea8315633/packages/platform-browser/src/browser.ts#L94) | [`Vue.createApp().mount()`](https://vuejs.org/api/application.html#createapp) | [`ReactDOM.createRoot().render()`](https://react.dev/reference/react-dom/client/createRoot) | [`new Component()`](https://svelte.dev/docs/client-side-component-api) |
 | 客户端水合 | `AngularPlatformBrowser.bootstrapApplication()` with [`provideClientHydration`](https://angular.io/api/platform-browser/provideClientHydration) | [`Vue.createSSRApp().mount()`](https://vuejs.org/api/application.html#createssrapp) | [`ReactDOM.hydrateRoot()`](https://react.dev/reference/react-dom/client/hydrateRoot) | `new Component({ hydrate: true })` |
 
+注：各个框架的最小 SSR Demo 可参考：https://github.com/upupming/ssr-minimal-examples
+
 <!-- ### 注意运行时差异
 
 在服务端渲染中，同一个前端组件会同时在服务端运行时和客户端运行时都进行渲染。因此会出现一些 -->
@@ -64,7 +66,7 @@ SSR 流程如下图所示：
 
 工欲善其事，必先利其器。Node.js 的流行使得 CommonJS 模块化逐渐流行，前端从最开始的手写单文件 Html、JS、CSS 的年代，逐渐引入了 Webpack、Rollup、Parcel 等构建工具，使得前端代码可以模块化、组件化、打包压缩、代码分割、懒加载等等。ES6 标准中的 ES Module 模块化目前也逐渐在替换 CommonJS，越来越多的 npm 包也开始提供 ES Module 版本的代码，甚至设置为 ES Module Only（例如[前端大神 Sindre Sorhus](https://gist.github.com/sindresorhus/a39789f98801d908bbc7ff3ecc99d99c)），浏览器的 ES Module 的支持也使得 Vite 这种 On-Demand 的构建工具逐渐流行起来，以极快开发体验为优势迅速占领市场。
 
-由于构建工具本身就是运行在 Node.js 环境下，在服务端渲染中可以承担服务器的角色。因此构建工具往往都会提供底层的服务端渲染能力，开发者可在其基础上做一些开发支持各种前端框架的服务端渲染，例如 Vite 就有 SSR 的底层能力，可以参考[文档](https://vitejs.dev/guide/ssr)。更上层的 Meta Framework 则是专门基于已有的构建工具做的开箱即用的相对 opniated 框架，例如 React 的 Next.js 和 Vue 的 Nuxt.js 等。
+由于构建工具本身就是运行在 Node.js 环境下，在服务端渲染中可以承担服务器的角色。因此构建工具往往都会提供底层的服务端渲染能力，开发者可在其基础上做一些开发支持各种前端框架的服务端渲染，例如 Vite 就有 SSR 的底层能力，可以参考[文档](https://vitejs.dev/guide/ssr)。更上层的 Meta Framework 则是专门基于已有的构建工具做的开箱即用的相对 opinionated 的框架，例如 React 的 Next.js 和 Vue 的 Nuxt.js 等。
 
 我们这里介绍一下从 0 到 1 实现一个服务端渲染框架的过程。这里我们选用社区目前比较新的构建工具 Rspack，Rspack 大量参考了 Webpack 并利用 Rust 重写，目前还没有发布 1.0。由于 Rspack 本身对 SSR 还没有提供支持，我们这里演示一下，如何对其进行拓展以支持 SSR。本次实现的代码已经放在了 GitHub 上开源：https://github.com/upupming/rspack-ssr-examples 。
 
@@ -149,8 +151,6 @@ ReactDOM.hydrateRoot(
 大功告成，我们设置好了我们的约定，那么接下来就是构建工具需要去加载并执行这些代码了，并把整个 SSR 流程完美的串起来。
 
 ### `dev` 命令的实现
-
-我们首先来分析
 
 #### 多 Entry 构建
 
@@ -573,12 +573,14 @@ ReactDOM.hydrateRoot(
 
 这里我们只是实现了一个最简单的服务端渲染框架，但是实际的服务端渲染框架往往还要支持路由、客户端降级、SSG 等功能。例如 Next.js 就有专门的路由系统，可以通过文件系统来定义路由，还有 `getServerSideProps` 和 `getStaticProps` 等函数来支持服务端渲染和静态生成。我们的框架还需要支持这些功能，这里就不展开了。
 
-- 路由：服务端需也需要支持路由，对于前端不同的地址，服务端需要返回不同页面对于组件的 Html 字符串。服务端对于路由的处理和浏览器不同，因此需要做一些处理来匹配。有非常 opinated 的框架会使用文件夹的组织方式作为路由，例如 Next.js；而有一些框架会使用配置文件来定义路由，给你更多的灵活度，例如 Vike。常见的有 MPA (Multi-Page Application) 和 SPA (Single-Page Application) 两种思路去维护路由。
+- 路由：服务端需也需要支持路由，对于前端不同的地址，服务端需要返回不同页面对于组件的 Html 字符串。服务端对于路由的处理和浏览器不同，因此需要做一些处理来匹配。有非常 opinionated 的框架会使用文件夹的组织方式作为路由，例如 Next.js；而有一些框架会使用配置文件来定义路由，给你更多的灵活度，例如 Vike。常见的有 MPA (Multi-Page Application) 和 SPA (Single-Page Application) 两种思路去维护路由。
 - SSG (Server-Side Generating) 是指在服务端生成静态页面，然后将静态页面返回给浏览器。SSG 和 SSR 的差异是 SSR 是每次请求都会重新生成页面，而 SSG 是在构建时生成页面，然后将页面缓存起来，每次请求都直接返回缓存的页面。SSG 可以大大提高页面的加载速度，因为不需要每次请求都重新生成页面。例如 Next.js 就有 `getStaticProps` 和 `getStaticPaths` 函数来支持 SSG。SSG 适用于博客这种构建时就确定了内容，不会变化的网页；SSR 适用于内容会变化的网页，例如电商主页，可能每时每刻点进去都有新的内容。
 - 客户端降级：服务端渲染框架往往还需要支持客户端降级，如果服务端因为每种原因不可用了，浏览器即使是拉到了 CDN 的静态资源，也需要能够正常运行。在大公司，业务场景中客户端降级是非常有要的。
 - NSR (Native-Side Rendering)：NSR 是指在客户端渲染的基础上，使用原生 App 的渲染能力来渲染页面。例如美团 App 提供 NSR 能力，可以减轻服务器的压力，利用 App 的能力完成数据预取、初始 Html 生成，提高页面的加载速度。
 
 ### 页面性能指标
+
+实现完 SSR 之后，往往需要衡量 SSR 与 CSR 的性能，计算收益，需要关注到页面性能指标。
 
 - W3C 的 Performance API: [Performance API | PerformanceTiming (Deprecated)](https://developer.mozilla.org/zh-CN/docs/Web/API/PerformanceTiming)、[Performance API | PerformanceNavigationTiming](https://developer.mozilla.org/en-US/docs/Web/API/PerformanceNavigationTiming)
 - 开源：[Google Web Vitals](https://web.dev/explore/learn-core-web-vitals)
